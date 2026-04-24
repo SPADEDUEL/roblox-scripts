@@ -188,7 +188,7 @@ local function lustScanPlot(plot)
     end
 end
 
--- Initialize scanner Ã¢â‚¬â€ called once after game loads
+-- Initialize scanner â€” called once after game loads
 local function lustInitScanner()
     task.wait(2)
     local plots = workspace:WaitForChild("Plots", 10)
@@ -1044,8 +1044,8 @@ if true then -- mobile buttons (always enabled)
         btn.BorderSizePixel = 0
         btn.Text = name
         btn.TextColor3 = Color3.fromRGB(210, 20, 20)
-        btn.Font = Enum.Font.GothamBlack
-        btn.TextSize = 14
+        btn.Font = Enum.Font.GothamBold
+        btn.TextSize = 11
         btn.AutoButtonColor = false
         btn.ZIndex = 10001
         btn.Parent = mobileGui
@@ -1165,7 +1165,7 @@ if true then -- mobile buttons (always enabled)
         if on then startInfiniteJump() else stopInfiniteJump() end
     end)
 
-    -- TP DOWN button Ã¢â‚¬â€ col2 row 3, same size as other buttons
+    -- TP DOWN button â€” col2 row 3, same size as other buttons
     do
         local tpBtn = Instance.new("TextButton")
         tpBtn.Name = "TP DOWN"
@@ -1236,7 +1236,7 @@ if true then -- mobile buttons (always enabled)
         tpBtn.MouseButton1Click:Connect(doTpDown)
     end
 
-    -- LOCK button Ã¢â‚¬â€ no toggle state stored in MobileButtons, just a local
+    -- LOCK button â€” no toggle state stored in MobileButtons, just a local
     do
         local lockBtn = Instance.new("TextButton")
         lockBtn.Name = "LOCK"
@@ -1245,7 +1245,7 @@ if true then -- mobile buttons (always enabled)
         lockBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
         lockBtn.BackgroundTransparency = 0.1
         lockBtn.BorderSizePixel = 0
-        lockBtn.Text = "Ã°Å¸â€â€œ UNLOCK"
+        lockBtn.Text = "ðŸ”“ UNLOCK"
         lockBtn.TextColor3 = Color3.fromRGB(200, 200, 200)
         lockBtn.Font = Enum.Font.GothamBlack
         lockBtn.TextSize = 13
@@ -1260,12 +1260,12 @@ if true then -- mobile buttons (always enabled)
         lockBtn.MouseButton1Click:Connect(function()
             buttonsLocked = not buttonsLocked
             if buttonsLocked then
-                lockBtn.Text = "Ã°Å¸â€â€™ LOCK"
+                lockBtn.Text = "ðŸ”’ LOCK"
                 lockBtn.BackgroundColor3 = Color3.fromRGB(255, 200, 0)
                 lockBtn.BackgroundTransparency = 0
                 lockBtn.TextColor3 = Color3.fromRGB(0, 0, 0)
             else
-                lockBtn.Text = "Ã°Å¸â€â€œ UNLOCK"
+                lockBtn.Text = "ðŸ”“ UNLOCK"
                 lockBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
                 lockBtn.BackgroundTransparency = 0.1
                 lockBtn.TextColor3 = Color3.fromRGB(200, 200, 200)
@@ -1276,12 +1276,12 @@ if true then -- mobile buttons (always enabled)
             if inp.UserInputType == Enum.UserInputType.Touch then
                 buttonsLocked = not buttonsLocked
                 if buttonsLocked then
-                    lockBtn.Text = "Ã°Å¸â€â€™ LOCK"
+                    lockBtn.Text = "ðŸ”’ LOCK"
                     lockBtn.BackgroundColor3 = Color3.fromRGB(255, 200, 0)
                     lockBtn.BackgroundTransparency = 0
                     lockBtn.TextColor3 = Color3.fromRGB(0, 0, 0)
                 else
-                    lockBtn.Text = "Ã°Å¸â€â€œ UNLOCK"
+                    lockBtn.Text = "ðŸ”“ UNLOCK"
                     lockBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
                     lockBtn.BackgroundTransparency = 0.1
                     lockBtn.TextColor3 = Color3.fromRGB(200, 200, 200)
@@ -1290,7 +1290,7 @@ if true then -- mobile buttons (always enabled)
         end)
     end
 
-    print("Ã¢Å“â€œ MOBILE BUTTONS: 2 horizontal rows, rectangles, lock button, fixed dragging")
+    print("âœ“ MOBILE BUTTONS: 2 horizontal rows, rectangles, lock button, fixed dragging")
 end
 
 
@@ -1348,7 +1348,7 @@ local batEmoji = Instance.new("TextLabel")
 batEmoji.Size = UDim2.new(0, 40, 0, 40)
 batEmoji.Position = UDim2.new(0, 14, 0, 8)
 batEmoji.BackgroundTransparency = 1
-batEmoji.Text = "Ã°Å¸Â¦â€¡"
+batEmoji.Text = "ðŸ¦‡"
 batEmoji.TextColor3 = C_PURPLE
 batEmoji.Font = Enum.Font.GothamBlack
 batEmoji.TextSize = 32
@@ -1371,7 +1371,7 @@ local byLbl = Instance.new("TextLabel")
 byLbl.Size = UDim2.new(1, 0, 0, 14)
 byLbl.Position = UDim2.new(0, 0, 0, 50)
 byLbl.BackgroundTransparency = 1
-byLbl.Text = "https://discord.gg/3DAdwMRtn"
+byLbl.Text = "tyke313"
 byLbl.TextColor3 = C_DIM
 byLbl.Font = Enum.Font.GothamBold
 byLbl.TextSize = 11
@@ -2408,6 +2408,19 @@ makeSlider(settingsWrap, "UI Scale", 0.5, 2.0, UI_SCALE, function(val)
     applyUIScale(val)
 end)
 
+makeSlider(settingsWrap, "Btn Scale", 0.6, 1.6, 1.0, function(val)
+    -- Scale all mobile buttons
+    local newW = math.floor(110 * val)
+    local newH = math.floor(52 * val)
+    local newFont = math.floor(11 * val)
+    for _, mb in pairs(MobileButtons) do
+        if mb and mb.btn then
+            mb.btn.Size = UDim2.new(0, newW, 0, newH)
+            mb.btn.TextSize = math.clamp(newFont, 8, 20)
+        end
+    end
+end)
+
 -- Float UI
 do
     local floatRow = Instance.new("Frame")
@@ -2493,6 +2506,16 @@ do
     fGap.BackgroundTransparency = 1
     fGap.BorderSizePixel = 0
 end
+
+makeSlider(settingsWrap, "Grab Radius", 1, 100, Values.STEAL_RADIUS, function(val)
+    Values.STEAL_RADIUS = math.floor(val)
+    if RadiusInput then RadiusInput.Text = tostring(Values.STEAL_RADIUS) end
+end)
+
+makeSlider(settingsWrap, "Grab Speed", 0.1, 5.0, Values.STEAL_DURATION, function(val)
+    Values.STEAL_DURATION = math.floor(val * 10) / 10
+    if DurationInput then DurationInput.Text = tostring(Values.STEAL_DURATION) end
+end)
 
 makeSlider(settingsWrap, "Float Ht", 2, 80, floatHeight, function(val)
     floatHeight = math.floor(val)
@@ -2862,8 +2885,8 @@ end
 LocalPlayer.CharacterAdded:Connect(setupChar)
 if LocalPlayer.Character then setupChar(LocalPlayer.Character) end
 
-print("SPADE HUB v4 - Loaded!")
-print("Ã¢Å“â€œ Mobile: 2 horizontal rows of rectangle buttons + LOCK button")
-print("Ã¢Å“â€œ Inf jump fixed for mobile (re-jumps on land)")
-print("Ã¢Å“â€œ A.LEFT/A.RIGHT auto-reset button when movement completes")
-print("Ã¢Å“â€œ Drag uses btn.InputChanged - joystick no longer moves buttons")
+print("K7 HUB v4 - Loaded!")
+print("âœ“ Mobile: 2 horizontal rows of rectangle buttons + LOCK button")
+print("âœ“ Inf jump fixed for mobile (re-jumps on land)")
+print("âœ“ A.LEFT/A.RIGHT auto-reset button when movement completes")
+print("âœ“ Drag uses btn.InputChanged - joystick no longer moves buttons")
