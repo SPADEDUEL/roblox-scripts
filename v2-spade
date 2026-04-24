@@ -749,7 +749,7 @@ local function updatePatrol()
     local tp  = wps[currentWaypoint]
     local txz = Vector3.new(tp.X, 0, tp.Z)
     local cxz = Vector3.new(rp.Position.X, 0, rp.Position.Z)
-    local spd = NORMAL_SPEED
+    local spd = currentWaypoint >= 2 and CARRY_SPEED or NORMAL_SPEED
     if (txz - cxz).Magnitude > 3 then
         local md = (txz - cxz).Unit
         rp.AssemblyLinearVelocity = Vector3.new(md.X * spd, rp.AssemblyLinearVelocity.Y, md.Z * spd)
