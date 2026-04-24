@@ -749,7 +749,7 @@ local function updatePatrol()
     local tp  = wps[currentWaypoint]
     local txz = Vector3.new(tp.X, 0, tp.Z)
     local cxz = Vector3.new(rp.Position.X, 0, rp.Position.Z)
-    local spd = currentWaypoint >= 2 and CARRY_SPEED or NORMAL_SPEED
+    local spd = currentWaypoint >= 3 and CARRY_SPEED or NORMAL_SPEED
     if (txz - cxz).Magnitude > 3 then
         local md = (txz - cxz).Unit
         rp.AssemblyLinearVelocity = Vector3.new(md.X * spd, rp.AssemblyLinearVelocity.Y, md.Z * spd)
@@ -1039,11 +1039,11 @@ if true then -- mobile buttons (always enabled)
         btn.Name = name
         btn.Size = UDim2.new(0, BTN_W, 0, BTN_H)
         btn.Position = UDim2.new(0, startX, 0, startY)
-        btn.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-        btn.BackgroundTransparency = 0.1
+        btn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+        btn.BackgroundTransparency = 0
         btn.BorderSizePixel = 0
         btn.Text = name
-        btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+        btn.TextColor3 = Color3.fromRGB(210, 20, 20)
         btn.Font = Enum.Font.GothamBlack
         btn.TextSize = 14
         btn.AutoButtonColor = false
@@ -1053,20 +1053,20 @@ if true then -- mobile buttons (always enabled)
         Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 12)
 
         local stroke = Instance.new("UIStroke", btn)
-        stroke.Color = color
+        stroke.Color = Color3.fromRGB(210, 20, 20)
         stroke.Thickness = 2.5
 
         local isOn = false
 
         local function updateVisual()
             if isOn then
-                btn.BackgroundColor3 = color
+                btn.BackgroundColor3 = Color3.fromRGB(210, 20, 20)
                 btn.BackgroundTransparency = 0
                 btn.TextColor3 = Color3.fromRGB(255, 255, 255)
             else
-                btn.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-                btn.BackgroundTransparency = 0.1
-                btn.TextColor3 = Color3.fromRGB(200, 200, 200)
+                btn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+                btn.BackgroundTransparency = 0
+                btn.TextColor3 = Color3.fromRGB(210, 20, 20)
             end
         end
 
