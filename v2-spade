@@ -188,7 +188,7 @@ local function lustScanPlot(plot)
     end
 end
 
--- Initialize scanner â€” called once after game loads
+-- Initialize scanner Ã¢â‚¬â€ called once after game loads
 local function lustInitScanner()
     task.wait(2)
     local plots = workspace:WaitForChild("Plots", 10)
@@ -1165,7 +1165,7 @@ if true then -- mobile buttons (always enabled)
         if on then startInfiniteJump() else stopInfiniteJump() end
     end)
 
-    -- TP DOWN button â€” col2 row 3, same size as other buttons
+    -- TP DOWN button Ã¢â‚¬â€ col2 row 3, same size as other buttons
     do
         local tpBtn = Instance.new("TextButton")
         tpBtn.Name = "TP DOWN"
@@ -1236,7 +1236,7 @@ if true then -- mobile buttons (always enabled)
         tpBtn.MouseButton1Click:Connect(doTpDown)
     end
 
-    -- LOCK button â€” no toggle state stored in MobileButtons, just a local
+    -- LOCK button Ã¢â‚¬â€ no toggle state stored in MobileButtons, just a local
     do
         local lockBtn = Instance.new("TextButton")
         lockBtn.Name = "LOCK"
@@ -1245,7 +1245,7 @@ if true then -- mobile buttons (always enabled)
         lockBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
         lockBtn.BackgroundTransparency = 0.1
         lockBtn.BorderSizePixel = 0
-        lockBtn.Text = "ðŸ”“ UNLOCK"
+        lockBtn.Text = "Ã°Å¸â€â€œ UNLOCK"
         lockBtn.TextColor3 = Color3.fromRGB(200, 200, 200)
         lockBtn.Font = Enum.Font.GothamBlack
         lockBtn.TextSize = 13
@@ -1260,12 +1260,12 @@ if true then -- mobile buttons (always enabled)
         lockBtn.MouseButton1Click:Connect(function()
             buttonsLocked = not buttonsLocked
             if buttonsLocked then
-                lockBtn.Text = "ðŸ”’ LOCK"
+                lockBtn.Text = "Ã°Å¸â€â€™ LOCK"
                 lockBtn.BackgroundColor3 = Color3.fromRGB(255, 200, 0)
                 lockBtn.BackgroundTransparency = 0
                 lockBtn.TextColor3 = Color3.fromRGB(0, 0, 0)
             else
-                lockBtn.Text = "ðŸ”“ UNLOCK"
+                lockBtn.Text = "Ã°Å¸â€â€œ UNLOCK"
                 lockBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
                 lockBtn.BackgroundTransparency = 0.1
                 lockBtn.TextColor3 = Color3.fromRGB(200, 200, 200)
@@ -1276,12 +1276,12 @@ if true then -- mobile buttons (always enabled)
             if inp.UserInputType == Enum.UserInputType.Touch then
                 buttonsLocked = not buttonsLocked
                 if buttonsLocked then
-                    lockBtn.Text = "ðŸ”’ LOCK"
+                    lockBtn.Text = "Ã°Å¸â€â€™ LOCK"
                     lockBtn.BackgroundColor3 = Color3.fromRGB(255, 200, 0)
                     lockBtn.BackgroundTransparency = 0
                     lockBtn.TextColor3 = Color3.fromRGB(0, 0, 0)
                 else
-                    lockBtn.Text = "ðŸ”“ UNLOCK"
+                    lockBtn.Text = "Ã°Å¸â€â€œ UNLOCK"
                     lockBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
                     lockBtn.BackgroundTransparency = 0.1
                     lockBtn.TextColor3 = Color3.fromRGB(200, 200, 200)
@@ -1290,7 +1290,7 @@ if true then -- mobile buttons (always enabled)
         end)
     end
 
-    print("âœ“ MOBILE BUTTONS: 2 horizontal rows, rectangles, lock button, fixed dragging")
+    print("Ã¢Å“â€œ MOBILE BUTTONS: 2 horizontal rows, rectangles, lock button, fixed dragging")
 end
 
 
@@ -1348,7 +1348,7 @@ local batEmoji = Instance.new("TextLabel")
 batEmoji.Size = UDim2.new(0, 40, 0, 40)
 batEmoji.Position = UDim2.new(0, 14, 0, 8)
 batEmoji.BackgroundTransparency = 1
-batEmoji.Text = "ðŸ¦‡"
+batEmoji.Text = "Ã°Å¸Â¦â€¡"
 batEmoji.TextColor3 = C_PURPLE
 batEmoji.Font = Enum.Font.GothamBlack
 batEmoji.TextSize = 32
@@ -1371,7 +1371,7 @@ local byLbl = Instance.new("TextLabel")
 byLbl.Size = UDim2.new(1, 0, 0, 14)
 byLbl.Position = UDim2.new(0, 0, 0, 50)
 byLbl.BackgroundTransparency = 1
-byLbl.Text = "tyke313"
+byLbl.Text = "https://discord.gg/3DAdwMRtn"
 byLbl.TextColor3 = C_DIM
 byLbl.Font = Enum.Font.GothamBold
 byLbl.TextSize = 11
@@ -2862,8 +2862,8 @@ end
 LocalPlayer.CharacterAdded:Connect(setupChar)
 if LocalPlayer.Character then setupChar(LocalPlayer.Character) end
 
-print("K7 HUB v4 - Loaded!")
-print("âœ“ Mobile: 2 horizontal rows of rectangle buttons + LOCK button")
-print("âœ“ Inf jump fixed for mobile (re-jumps on land)")
-print("âœ“ A.LEFT/A.RIGHT auto-reset button when movement completes")
-print("âœ“ Drag uses btn.InputChanged - joystick no longer moves buttons")
+print("SPADE HUB v4 - Loaded!")
+print("Ã¢Å“â€œ Mobile: 2 horizontal rows of rectangle buttons + LOCK button")
+print("Ã¢Å“â€œ Inf jump fixed for mobile (re-jumps on land)")
+print("Ã¢Å“â€œ A.LEFT/A.RIGHT auto-reset button when movement completes")
+print("Ã¢Å“â€œ Drag uses btn.InputChanged - joystick no longer moves buttons")
