@@ -2202,12 +2202,10 @@ local function makeSlider(parent, lbl, minVal, maxVal, defaultVal, onChanged)
         local thumbOffset = deviceType == "Mobile" and -10 or -7
         thumb.Position = UDim2.new(relX, thumbOffset, 0.5, thumbOffset + 1)
         
-        if lbl == "FOV" then
+        if lbl == "FOV" or lbl == "Grab Radius" or lbl == "Btn Scale" then
             valTxt.Text = tostring(math.floor(value))
-        elseif lbl == "UI Scale" then
-            valTxt.Text = string.format("%.1f", value)
         else
-            valTxt.Text = tostring(math.floor(value))
+            valTxt.Text = string.format("%.1f", math.floor(value * 10 + 0.5) / 10)
         end
         
         if lbl == "UI Scale" then
