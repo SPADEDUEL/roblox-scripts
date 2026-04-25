@@ -1263,7 +1263,10 @@ if true then -- mobile buttons (always enabled)
         lockStroke.Color = Color3.fromRGB(255, 200, 0)
         lockStroke.Thickness = 2.5
 
-        lockBtn.MouseButton1Click:Connect(function()
+        local lockDragging, lockMoved = false, false
+        local lockDragStart, lockStartPos = Vector2.zero, Vector2.zero
+
+        local function toggleLock()
             buttonsLocked = not buttonsLocked
             if buttonsLocked then
                 lockBtn.Text = "LOCK"
@@ -1276,23 +1279,33 @@ if true then -- mobile buttons (always enabled)
                 lockBtn.BackgroundTransparency = 0.1
                 lockBtn.TextColor3 = Color3.fromRGB(200, 200, 200)
             end
-        end)
-        -- touch support
+        end
+
         lockBtn.InputBegan:Connect(function(inp)
-            if inp.UserInputType == Enum.UserInputType.Touch then
-                buttonsLocked = not buttonsLocked
-                if buttonsLocked then
-                    lockBtn.Text = "LOCK"
-                    lockBtn.BackgroundColor3 = Color3.fromRGB(255, 200, 0)
-                    lockBtn.BackgroundTransparency = 0
-                    lockBtn.TextColor3 = Color3.fromRGB(0, 0, 0)
-                else
-                    lockBtn.Text = "UNLOCK"
-                    lockBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-                    lockBtn.BackgroundTransparency = 0.1
-                    lockBtn.TextColor3 = Color3.fromRGB(200, 200, 200)
+            if inp.UserInputType == Enum.UserInputType.Touch or inp.UserInputType == Enum.UserInputType.MouseButton1 then
+                lockDragging = true; lockMoved = false
+                lockDragStart = Vector2.new(inp.Position.X, inp.Position.Y)
+                lockStartPos = Vector2.new(lockBtn.AbsolutePosition.X, lockBtn.AbsolutePosition.Y)
+            end
+        end)
+        lockBtn.InputChanged:Connect(function(inp)
+            if not lockDragging then return end
+            if inp.UserInputType == Enum.UserInputType.Touch or inp.UserInputType == Enum.UserInputType.MouseMovement then
+                local delta = Vector2.new(inp.Position.X, inp.Position.Y) - lockDragStart
+                if delta.Magnitude > 10 then
+                    lockMoved = true
+                    lockBtn.Position = UDim2.new(0, lockStartPos.X + delta.X, 0, lockStartPos.Y + delta.Y)
                 end
             end
+        end)
+        lockBtn.InputEnded:Connect(function(inp)
+            if inp.UserInputType == Enum.UserInputType.Touch or inp.UserInputType == Enum.UserInputType.MouseButton1 then
+                if lockDragging and not lockMoved then toggleLock() end
+                lockDragging = false
+            end
+        end)
+        lockBtn.MouseButton1Click:Connect(function()
+            if not lockMoved then toggleLock() end
         end)
     end
 
@@ -2513,7 +2526,7 @@ makeSlider(settingsWrap, "Grab Radius", 1, 100, Values.STEAL_RADIUS, function(va
     if RadiusInput then RadiusInput.Text = tostring(Values.STEAL_RADIUS) end
 end)
 
-makeSlider(settingsWrap, "Grab Speed", 0.1, 5.0, Values.STEAL_DURATION, function(val)
+makeSlider(settingsWrap, "Grab Speed", 0.1, 1.0, Values.STEAL_DURATION, function(val)
     Values.STEAL_DURATION = math.floor(val * 10) / 10
     if DurationInput then DurationInput.Text = tostring(Values.STEAL_DURATION) end
 end)
