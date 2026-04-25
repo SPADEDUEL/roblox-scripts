@@ -2527,8 +2527,10 @@ makeSlider(settingsWrap, "Grab Radius", 1, 100, Values.STEAL_RADIUS, function(va
 end)
 
 makeSlider(settingsWrap, "Grab Speed", 0.1, 1.0, Values.STEAL_DURATION, function(val)
-    Values.STEAL_DURATION = math.floor(val * 10) / 10
-    if DurationInput then DurationInput.Text = tostring(Values.STEAL_DURATION) end
+    -- Snap to nearest 0.1
+    local snapped = math.floor(val * 10 + 0.5) / 10
+    Values.STEAL_DURATION = snapped
+    if DurationInput then DurationInput.Text = tostring(snapped) end
 end)
 
 makeSlider(settingsWrap, "Float Ht", 2, 80, floatHeight, function(val)
