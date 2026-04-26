@@ -1185,24 +1185,30 @@ if true then -- mobile buttons (always enabled)
 
     createMobileButton("DROP", col2X, startY + (BTN_H+GAP)*2, Color3.fromRGB(255, 220, 0), function(on)
         if not on then return end
-        -- One-shot: launch up fast then drop down fast, no character reset
         task.spawn(function()
             local char = LocalPlayer.Character; if not char then return end
             local rp = char:FindFirstChild("HumanoidRootPart"); if not rp then return end
             local hum = char:FindFirstChildOfClass("Humanoid"); if not hum then return end
-            local origGravity = workspace.Gravity
-            -- Launch up
+            -- Launch up fast
             hum:ChangeState(Enum.HumanoidStateType.Jumping)
             rp.AssemblyLinearVelocity = Vector3.new(rp.AssemblyLinearVelocity.X, 120, rp.AssemblyLinearVelocity.Z)
-            task.wait(0.35)
-            -- Kill upward velocity and drop fast
-            workspace.Gravity = 400
-            rp.AssemblyLinearVelocity = Vector3.new(rp.AssemblyLinearVelocity.X, -80, rp.AssemblyLinearVelocity.Z)
-            task.wait(0.4)
-            -- Restore gravity
-            workspace.Gravity = origGravity
-            -- Reset button state
-            if MobileButtons["DROP"] then MobileButtons["DROP"].setState(false) end
+            task.wait(0.3)
+            -- Pull down fast using velocity only, no gravity change
+            local conn
+            local elapsed = 0
+            conn = RunService.Heartbeat:Connect(function(dt)
+                elapsed = elapsed + dt
+                if not rp or not rp.Parent then conn:Disconnect() return end
+                rp.AssemblyLinearVelocity = Vector3.new(
+                    rp.AssemblyLinearVelocity.X,
+                    -120,
+                    rp.AssemblyLinearVelocity.Z
+                )
+                if elapsed > 0.4 then
+                    conn:Disconnect()
+                    if MobileButtons["DROP"] then MobileButtons["DROP"].setState(false) end
+                end
+            end)
         end)
     end)
 
