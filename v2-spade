@@ -43,14 +43,14 @@ local AutoRightEnabled = false
 -- Customizable 5-waypoint patrol (Spade Hub system)
 local leftWaypoints = {
     Vector3.new(-476.00, -6.28,  93.00),  -- L1
-    Vector3.new(-487.00, -4.95,  94.00),  -- L2
+    Vector3.new(-485.00, -4.95,  94.00),  -- L2
     Vector3.new(-475.00, -6.99,  93.29),  -- L3
     Vector3.new(-475.00, -6.99,  26.00),  -- L4
     Vector3.new(-485.00, -6.99,  26.00),  -- L5
 }
 local rightWaypoints = {
     Vector3.new(-475.00, -6.99,  26.00),  -- R1
-    Vector3.new(-487.00, -5.09,  25.00),  -- R2
+    Vector3.new(-485.00, -5.09,  25.00),  -- R2
     Vector3.new(-475.00, -6.99,  26.00),  -- R3
     Vector3.new(-475.00, -6.99,  95.00),  -- R4
     Vector3.new(-485.00, -6.99,  95.00),  -- R5
@@ -188,7 +188,7 @@ local function lustScanPlot(plot)
     end
 end
 
--- Initialize scanner ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â called once after game loads
+-- Initialize scanner Ã¢â‚¬â€ called once after game loads
 local function lustInitScanner()
     task.wait(2)
     local plots = workspace:WaitForChild("Plots", 10)
@@ -1168,7 +1168,7 @@ if true then -- mobile buttons (always enabled)
         if on then startInfiniteJump() else stopInfiniteJump() end
     end)
 
-    -- TP DOWN button ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â stored in MobileButtons so Btn Scale slider works
+    -- TP DOWN button Ã¢â‚¬â€ stored in MobileButtons so Btn Scale slider works
     local tpBtnRef
     do
         local tpBtn = Instance.new("TextButton")
@@ -1242,7 +1242,7 @@ if true then -- mobile buttons (always enabled)
         tpBtn.MouseButton1Click:Connect(doTpDown)
     end
 
-    -- LOCK button ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â no toggle state stored in MobileButtons, just a local
+    -- LOCK button Ã¢â‚¬â€ no toggle state stored in MobileButtons, just a local
     do
         local lockBtn = Instance.new("TextButton")
         lockBtn.Name = "LOCK"
@@ -1309,7 +1309,239 @@ if true then -- mobile buttons (always enabled)
         end)
     end
 
-    print("ÃƒÂ¢Ã…â€œÃ¢â‚¬Å“ MOBILE BUTTONS: 2 horizontal rows, rectangles, lock button, fixed dragging")
+
+    -- DESYNC button
+    do
+        local desyncActive = false
+
+        local dsBtn = Instance.new("TextButton")
+        dsBtn.Name = "DESYNC"
+        dsBtn.Size = UDim2.new(0, BTN_W, 0, BTN_H)
+        dsBtn.Position = UDim2.new(0, col1X, 0, startY + (BTN_H+GAP)*4)
+        dsBtn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+        dsBtn.BackgroundTransparency = 0
+        dsBtn.BorderSizePixel = 0
+        dsBtn.Text = "DESYNC"
+        dsBtn.TextColor3 = Color3.fromRGB(210, 20, 20)
+        dsBtn.Font = Enum.Font.GothamBold
+        dsBtn.TextSize = 10
+        dsBtn.AutoButtonColor = false
+        dsBtn.ZIndex = 10001
+        dsBtn.Parent = mobileGui
+        Instance.new("UICorner", dsBtn).CornerRadius = UDim.new(0, 12)
+        local dsStroke = Instance.new("UIStroke", dsBtn)
+        dsStroke.Color = Color3.fromRGB(210, 20, 20)
+        dsStroke.Thickness = 2
+        local dsTsz = Instance.new("UITextSizeConstraint", dsBtn)
+        dsTsz.MinTextSize = 7; dsTsz.MaxTextSize = 12
+
+        local function setDesync(on)
+            desyncActive = on
+            if on then
+                dsBtn.BackgroundColor3 = Color3.fromRGB(210, 20, 20)
+                dsBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+                pcall(function()
+                    raknet.desync(true)
+                    local char = LocalPlayer.Character
+                    if char and char:FindFirstChild("Humanoid") then
+                        char.Humanoid.Health = 0
+                    end
+                end)
+            else
+                dsBtn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+                dsBtn.TextColor3 = Color3.fromRGB(210, 20, 20)
+                pcall(function() raknet.desync(false) end)
+            end
+        end
+
+        MobileButtons["DESYNC"] = { btn = dsBtn, setState = setDesync }
+
+        local dsDragging, dsMoved = false, false
+        local dsDragStart, dsStartPos = Vector2.zero, Vector2.zero
+        dsBtn.InputBegan:Connect(function(inp)
+            if inp.UserInputType == Enum.UserInputType.Touch or inp.UserInputType == Enum.UserInputType.MouseButton1 then
+                dsDragging = true; dsMoved = false
+                dsDragStart = Vector2.new(inp.Position.X, inp.Position.Y)
+                dsStartPos  = Vector2.new(dsBtn.AbsolutePosition.X, dsBtn.AbsolutePosition.Y)
+            end
+        end)
+        dsBtn.InputChanged:Connect(function(inp)
+            if not dsDragging then return end
+            if buttonsLocked then return end
+            if inp.UserInputType == Enum.UserInputType.Touch or inp.UserInputType == Enum.UserInputType.MouseMovement then
+                local delta = Vector2.new(inp.Position.X, inp.Position.Y) - dsDragStart
+                if delta.Magnitude > 10 then
+                    dsMoved = true
+                    dsBtn.Position = UDim2.new(0, dsStartPos.X + delta.X, 0, dsStartPos.Y + delta.Y)
+                end
+            end
+        end)
+        dsBtn.InputEnded:Connect(function(inp)
+            if inp.UserInputType == Enum.UserInputType.Touch or inp.UserInputType == Enum.UserInputType.MouseButton1 then
+                if dsDragging and not dsMoved then setDesync(not desyncActive) end
+                dsDragging = false
+            end
+        end)
+        dsBtn.MouseButton1Click:Connect(function()
+            if not dsMoved then setDesync(not desyncActive) end
+        end)
+    end
+
+    -- SERVER POV button
+    do
+        local serverPovActive = false
+        local serverPovConn   = nil
+        local serverCamera    = nil
+        local vpCharClone     = nil
+
+        local viewportFrame = Instance.new("ViewportFrame")
+        viewportFrame.Size = UDim2.new(0, 260, 0, 180)
+        viewportFrame.Position = UDim2.new(1, -270, 1, -190)
+        viewportFrame.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+        viewportFrame.BorderSizePixel = 0
+        viewportFrame.Visible = false
+        viewportFrame.ZIndex = 5
+        viewportFrame.Parent = mobileGui
+        Instance.new("UICorner", viewportFrame).CornerRadius = UDim.new(0, 10)
+        local vpStroke = Instance.new("UIStroke", viewportFrame)
+        vpStroke.Color = Color3.fromRGB(210, 20, 20)
+        vpStroke.Thickness = 2
+
+        local vpLabel = Instance.new("TextLabel")
+        vpLabel.Size = UDim2.new(1, 0, 0, 20)
+        vpLabel.BackgroundColor3 = Color3.fromRGB(210, 20, 20)
+        vpLabel.BackgroundTransparency = 0.2
+        vpLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+        vpLabel.Font = Enum.Font.GothamBold
+        vpLabel.TextSize = 11
+        vpLabel.Text = "SERVER POV"
+        vpLabel.ZIndex = 6
+        vpLabel.Parent = viewportFrame
+        Instance.new("UICorner", vpLabel).CornerRadius = UDim.new(0, 8)
+
+        local function buildServerPov()
+            serverCamera = Instance.new("Camera")
+            serverCamera.FieldOfView = 70
+            viewportFrame.CurrentCamera = serverCamera
+            if vpCharClone then vpCharClone:Destroy() end
+            local char = LocalPlayer.Character; if not char then return end
+            vpCharClone = char:Clone()
+            for _, s in ipairs(vpCharClone:GetDescendants()) do
+                if s:IsA("LocalScript") or s:IsA("Script") then s:Destroy() end
+            end
+            vpCharClone.Parent = viewportFrame
+            if serverPovConn then serverPovConn:Disconnect() end
+            serverPovConn = RunService.RenderStepped:Connect(function()
+                if not serverPovActive then return end
+                local char2 = LocalPlayer.Character; if not char2 then return end
+                for _, part in ipairs(char2:GetChildren()) do
+                    if part:IsA("BasePart") then
+                        local cp = vpCharClone:FindFirstChild(part.Name)
+                        if cp then cp.CFrame = part.CFrame end
+                    end
+                end
+                local cloneHRP = vpCharClone:FindFirstChild("HumanoidRootPart")
+                if cloneHRP then
+                    serverCamera.CFrame = CFrame.new(
+                        cloneHRP.Position + cloneHRP.CFrame.LookVector * -6 + Vector3.new(0, 3, 0),
+                        cloneHRP.Position
+                    )
+                end
+            end)
+        end
+
+        local function destroyServerPov()
+            if serverPovConn then serverPovConn:Disconnect(); serverPovConn = nil end
+            if serverCamera then serverCamera:Destroy(); serverCamera = nil end
+            if vpCharClone then vpCharClone:Destroy(); vpCharClone = nil end
+            viewportFrame.Visible = false
+        end
+
+        local spBtn = Instance.new("TextButton")
+        spBtn.Name = "SRV POV"
+        spBtn.Size = UDim2.new(0, BTN_W, 0, BTN_H)
+        spBtn.Position = UDim2.new(0, col2X, 0, startY + (BTN_H+GAP)*4)
+        spBtn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+        spBtn.BackgroundTransparency = 0
+        spBtn.BorderSizePixel = 0
+        spBtn.Text = "SRV POV"
+        spBtn.TextColor3 = Color3.fromRGB(210, 20, 20)
+        spBtn.Font = Enum.Font.GothamBold
+        spBtn.TextSize = 10
+        spBtn.AutoButtonColor = false
+        spBtn.ZIndex = 10001
+        spBtn.Parent = mobileGui
+        Instance.new("UICorner", spBtn).CornerRadius = UDim.new(0, 12)
+        local spStroke = Instance.new("UIStroke", spBtn)
+        spStroke.Color = Color3.fromRGB(210, 20, 20)
+        spStroke.Thickness = 2
+        local spTsz = Instance.new("UITextSizeConstraint", spBtn)
+        spTsz.MinTextSize = 7; spTsz.MaxTextSize = 12
+
+        local function toggleServerPov()
+            serverPovActive = not serverPovActive
+            if serverPovActive then
+                spBtn.BackgroundColor3 = Color3.fromRGB(210, 20, 20)
+                spBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+                viewportFrame.Visible = true
+                buildServerPov()
+            else
+                spBtn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+                spBtn.TextColor3 = Color3.fromRGB(210, 20, 20)
+                destroyServerPov()
+            end
+        end
+
+        MobileButtons["SRV POV"] = { btn = spBtn, setState = function(on)
+            serverPovActive = on
+            if on then
+                spBtn.BackgroundColor3 = Color3.fromRGB(210, 20, 20)
+                spBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+                viewportFrame.Visible = true
+                buildServerPov()
+            else
+                spBtn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+                spBtn.TextColor3 = Color3.fromRGB(210, 20, 20)
+                destroyServerPov()
+            end
+        end}
+
+        local spDragging, spMoved = false, false
+        local spDragStart, spStartPos = Vector2.zero, Vector2.zero
+        spBtn.InputBegan:Connect(function(inp)
+            if inp.UserInputType == Enum.UserInputType.Touch or inp.UserInputType == Enum.UserInputType.MouseButton1 then
+                spDragging = true; spMoved = false
+                spDragStart = Vector2.new(inp.Position.X, inp.Position.Y)
+                spStartPos  = Vector2.new(spBtn.AbsolutePosition.X, spBtn.AbsolutePosition.Y)
+            end
+        end)
+        spBtn.InputChanged:Connect(function(inp)
+            if not spDragging then return end
+            if buttonsLocked then return end
+            if inp.UserInputType == Enum.UserInputType.Touch or inp.UserInputType == Enum.UserInputType.MouseMovement then
+                local delta = Vector2.new(inp.Position.X, inp.Position.Y) - spDragStart
+                if delta.Magnitude > 10 then
+                    spMoved = true
+                    spBtn.Position = UDim2.new(0, spStartPos.X + delta.X, 0, spStartPos.Y + delta.Y)
+                end
+            end
+        end)
+        spBtn.InputEnded:Connect(function(inp)
+            if inp.UserInputType == Enum.UserInputType.Touch or inp.UserInputType == Enum.UserInputType.MouseButton1 then
+                if spDragging and not spMoved then toggleServerPov() end
+                spDragging = false
+            end
+        end)
+        spBtn.MouseButton1Click:Connect(function()
+            if not spMoved then toggleServerPov() end
+        end)
+
+        LocalPlayer.CharacterAdded:Connect(function()
+            if serverPovActive then task.wait(1); buildServerPov() end
+        end)
+    end
+
+    print("Ã¢Å“â€œ MOBILE BUTTONS: 2 horizontal rows, rectangles, lock button, fixed dragging")
 end
 
 
@@ -2900,7 +3132,7 @@ LocalPlayer.CharacterAdded:Connect(setupChar)
 if LocalPlayer.Character then setupChar(LocalPlayer.Character) end
 
 print("SPADE HUB v4 - Loaded!")
-print("ÃƒÂ¢Ã…â€œÃ¢â‚¬Å“ Mobile: 2 horizontal rows of rectangle buttons + LOCK button")
-print("ÃƒÂ¢Ã…â€œÃ¢â‚¬Å“ Inf jump fixed for mobile (re-jumps on land)")
-print("ÃƒÂ¢Ã…â€œÃ¢â‚¬Å“ A.LEFT/A.RIGHT auto-reset button when movement completes")
-print("ÃƒÂ¢Ã…â€œÃ¢â‚¬Å“ Drag uses btn.InputChanged - joystick no longer moves buttons")
+print("Ã¢Å“â€œ Mobile: 2 horizontal rows of rectangle buttons + LOCK button")
+print("Ã¢Å“â€œ Inf jump fixed for mobile (re-jumps on land)")
+print("Ã¢Å“â€œ A.LEFT/A.RIGHT auto-reset button when movement completes")
+print("Ã¢Å“â€œ Drag uses btn.InputChanged - joystick no longer moves buttons")
