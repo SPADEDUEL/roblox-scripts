@@ -43,14 +43,14 @@ local AutoRightEnabled = false
 -- Customizable 5-waypoint patrol (Spade Hub system)
 local leftWaypoints = {
     Vector3.new(-476.00, -6.28,  93.00),  -- L1
-    Vector3.new(-485.00, -4.95,  94.00),  -- L2
+    Vector3.new(-488.00, -4.95,  94.00),  -- L2
     Vector3.new(-475.00, -6.99,  93.29),  -- L3
     Vector3.new(-475.00, -6.99,  26.00),  -- L4
     Vector3.new(-485.00, -6.99,  26.00),  -- L5
 }
 local rightWaypoints = {
     Vector3.new(-475.00, -6.99,  26.00),  -- R1
-    Vector3.new(-485.00, -5.09,  25.00),  -- R2
+    Vector3.new(-488.00, -5.09,  25.00),  -- R2
     Vector3.new(-475.00, -6.99,  26.00),  -- R3
     Vector3.new(-475.00, -6.99,  95.00),  -- R4
     Vector3.new(-485.00, -6.99,  95.00),  -- R5
@@ -188,7 +188,7 @@ local function lustScanPlot(plot)
     end
 end
 
--- Initialize scanner Ã¢â‚¬â€ called once after game loads
+-- Initialize scanner ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â called once after game loads
 local function lustInitScanner()
     task.wait(2)
     local plots = workspace:WaitForChild("Plots", 10)
@@ -1212,7 +1212,7 @@ if true then -- mobile buttons (always enabled)
         end)
     end)
 
-    -- TP DOWN button Ã¢â‚¬â€ stored in MobileButtons so Btn Scale slider works
+    -- TP DOWN button ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â stored in MobileButtons so Btn Scale slider works
     local tpBtnRef
     do
         local tpBtn = Instance.new("TextButton")
@@ -1286,7 +1286,7 @@ if true then -- mobile buttons (always enabled)
         tpBtn.MouseButton1Click:Connect(doTpDown)
     end
 
-    -- LOCK button Ã¢â‚¬â€ no toggle state stored in MobileButtons, just a local
+    -- LOCK button ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â no toggle state stored in MobileButtons, just a local
     do
         local lockBtn = Instance.new("TextButton")
         lockBtn.Name = "LOCK"
@@ -1354,7 +1354,7 @@ if true then -- mobile buttons (always enabled)
     end
 
 
-    print("Ã¢Å“â€œ MOBILE BUTTONS: 2 horizontal rows, rectangles, lock button, fixed dragging")
+    print("ÃƒÂ¢Ã…â€œÃ¢â‚¬Å“ MOBILE BUTTONS: 2 horizontal rows, rectangles, lock button, fixed dragging")
 end
 
 
@@ -2945,7 +2945,7 @@ LocalPlayer.CharacterAdded:Connect(setupChar)
 if LocalPlayer.Character then setupChar(LocalPlayer.Character) end
 
 print("SPADE HUB v4 - Loaded!")
-print("Ã¢Å“â€œ Mobile: 2 horizontal rows of rectangle buttons + LOCK button")
-print("Ã¢Å“â€œ Inf jump fixed for mobile (re-jumps on land)")
-print("Ã¢Å“â€œ A.LEFT/A.RIGHT auto-reset button when movement completes")
-print("Ã¢Å“â€œ Drag uses btn.InputChanged - joystick no longer moves buttons")
+print("ÃƒÂ¢Ã…â€œÃ¢â‚¬Å“ Mobile: 2 horizontal rows of rectangle buttons + LOCK button")
+print("ÃƒÂ¢Ã…â€œÃ¢â‚¬Å“ Inf jump fixed for mobile (re-jumps on land)")
+print("ÃƒÂ¢Ã…â€œÃ¢â‚¬Å“ A.LEFT/A.RIGHT auto-reset button when movement completes")
+print("ÃƒÂ¢Ã…â€œÃ¢â‚¬Å“ Drag uses btn.InputChanged - joystick no longer moves buttons")
