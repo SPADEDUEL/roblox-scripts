@@ -43,14 +43,14 @@ local AutoRightEnabled = false
 -- Customizable 5-waypoint patrol (Spade Hub system)
 local leftWaypoints = {
     Vector3.new(-476.00, -6.28,  93.00),  -- L1
-    Vector3.new(-488.00, -4.95,  94.00),  -- L2
+    Vector3.new(-485.00, -4.95,  94.00),  -- L2
     Vector3.new(-475.00, -6.99,  93.29),  -- L3
     Vector3.new(-475.00, -6.99,  26.00),  -- L4
     Vector3.new(-485.00, -6.99,  26.00),  -- L5
 }
 local rightWaypoints = {
     Vector3.new(-475.00, -6.99,  26.00),  -- R1
-    Vector3.new(-488.00, -5.09,  25.00),  -- R2
+    Vector3.new(-485.00, -5.09,  25.00),  -- R2
     Vector3.new(-475.00, -6.99,  26.00),  -- R3
     Vector3.new(-475.00, -6.99,  95.00),  -- R4
     Vector3.new(-485.00, -6.99,  95.00),  -- R5
@@ -188,7 +188,7 @@ local function lustScanPlot(plot)
     end
 end
 
--- Initialize scanner ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â called once after game loads
+-- Initialize scanner Ã¢â‚¬â€ called once after game loads
 local function lustInitScanner()
     task.wait(2)
     local plots = workspace:WaitForChild("Plots", 10)
@@ -840,19 +840,72 @@ local function tryHitBat()
     task.delay(SAFE_DELAY, function() hittingCooldown = false end)
 end
 
+-- Desync detection: track each player's last known position + time
+local playerPosCache = {}
+local DESYNC_STILL_TIME  = 0.6  -- seconds position unchanged = suspect desynced
+local DESYNC_VEL_THRESH  = 1.5  -- velocity below this = not moving on server
+
+local function isPlayerDesynced(plr)
+    local char = plr.Character
+    if not char then return false end
+    local rp = char:FindFirstChild("HumanoidRootPart")
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if not rp or not hum then return false end
+
+    local now = tick()
+    local uid = plr.UserId
+    local cached = playerPosCache[uid]
+    local vel = rp.AssemblyLinearVelocity
+    local velMag = Vector3.new(vel.X, 0, vel.Z).Magnitude
+    local state = hum:GetState()
+
+    if not cached then
+        playerPosCache[uid] = { pos = rp.Position, time = now }
+        return false
+    end
+
+    local moved = (rp.Position - cached.pos).Magnitude
+    if moved > 0.5 then
+        -- Position changed, reset cache
+        playerPosCache[uid] = { pos = rp.Position, time = now }
+        return false
+    end
+
+    -- Position hasn't changed
+    local stillFor = now - cached.time
+    local velFrozen = velMag < DESYNC_VEL_THRESH
+    local statePhysics = state == Enum.HumanoidStateType.Physics
+
+    return stillFor >= DESYNC_STILL_TIME and (velFrozen or statePhysics)
+end
+
 local function getClosestPlayer()
     local closestPlayer = nil
     local closestDist = math.huge
-    
+    local desyncedTarget = nil
+    local desyncedDist = math.huge
+
     for _, plr in pairs(Players:GetPlayers()) do
         if plr ~= LocalPlayer and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
             local targetHRP = plr.Character.HumanoidRootPart
             local dist = (hrp.Position - targetHRP.Position).Magnitude
-            if dist < closestDist then
-                closestDist = dist
-                closestPlayer = plr
+            if isPlayerDesynced(plr) then
+                -- Prioritize desynced players â€” target them even if further
+                if dist < desyncedDist then
+                    desyncedDist = dist
+                    desyncedTarget = plr
+                end
+            else
+                if dist < closestDist then
+                    closestDist = dist
+                    closestPlayer = plr
+                end
             end
         end
+    end
+    -- Desynced player takes priority over normal closest
+    if desyncedTarget then
+        return desyncedTarget, desyncedDist
     end
     return closestPlayer, closestDist
 end
@@ -862,7 +915,7 @@ local function flyToFrontOfTarget(targetHRP)
     local forward = targetHRP.CFrame.LookVector
     local frontPos = targetHRP.Position + forward * 1.5
     local direction = (frontPos - hrp.Position).Unit
-    hrp.Velocity = Vector3.new(direction.X * 56.5, direction.Y * 56.5, direction.Z * 56.5)
+    hrp.AssemblyLinearVelocity = Vector3.new(direction.X * 56.5, direction.Y * 56.5, direction.Z * 56.5)
 end
 
 -- Settings Functions
@@ -1212,7 +1265,7 @@ if true then -- mobile buttons (always enabled)
         end)
     end)
 
-    -- TP DOWN button ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â stored in MobileButtons so Btn Scale slider works
+    -- TP DOWN button Ã¢â‚¬â€ stored in MobileButtons so Btn Scale slider works
     local tpBtnRef
     do
         local tpBtn = Instance.new("TextButton")
@@ -1286,7 +1339,7 @@ if true then -- mobile buttons (always enabled)
         tpBtn.MouseButton1Click:Connect(doTpDown)
     end
 
-    -- LOCK button ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â no toggle state stored in MobileButtons, just a local
+    -- LOCK button Ã¢â‚¬â€ no toggle state stored in MobileButtons, just a local
     do
         local lockBtn = Instance.new("TextButton")
         lockBtn.Name = "LOCK"
@@ -1354,7 +1407,7 @@ if true then -- mobile buttons (always enabled)
     end
 
 
-    print("ÃƒÂ¢Ã…â€œÃ¢â‚¬Å“ MOBILE BUTTONS: 2 horizontal rows, rectangles, lock button, fixed dragging")
+    print("Ã¢Å“â€œ MOBILE BUTTONS: 2 horizontal rows, rectangles, lock button, fixed dragging")
 end
 
 
@@ -2836,11 +2889,11 @@ RunService.RenderStepped:Connect(function()
         local md = h.MoveDirection
         local spd = speedToggled and CARRY_SPEED or NORMAL_SPEED
         if md.Magnitude > 0 then
-            hrp.Velocity = Vector3.new(md.X * spd, hrp.Velocity.Y, md.Z * spd)
+            hrp.AssemblyLinearVelocity = Vector3.new(md.X * spd, hrp.AssemblyLinearVelocity.Y, md.Z * spd)
         end
     end
     if speedLbl then
-        speedLbl.Text = "Speed: " .. string.format("%.1f", Vector3.new(hrp.Velocity.X, 0, hrp.Velocity.Z).Magnitude)
+        speedLbl.Text = "Speed: " .. string.format("%.1f", Vector3.new(hrp.AssemblyLinearVelocity.X, 0, hrp.AssemblyLinearVelocity.Z).Magnitude)
     end
 end)
 
@@ -2945,7 +2998,7 @@ LocalPlayer.CharacterAdded:Connect(setupChar)
 if LocalPlayer.Character then setupChar(LocalPlayer.Character) end
 
 print("SPADE HUB v4 - Loaded!")
-print("ÃƒÂ¢Ã…â€œÃ¢â‚¬Å“ Mobile: 2 horizontal rows of rectangle buttons + LOCK button")
-print("ÃƒÂ¢Ã…â€œÃ¢â‚¬Å“ Inf jump fixed for mobile (re-jumps on land)")
-print("ÃƒÂ¢Ã…â€œÃ¢â‚¬Å“ A.LEFT/A.RIGHT auto-reset button when movement completes")
-print("ÃƒÂ¢Ã…â€œÃ¢â‚¬Å“ Drag uses btn.InputChanged - joystick no longer moves buttons")
+print("Ã¢Å“â€œ Mobile: 2 horizontal rows of rectangle buttons + LOCK button")
+print("Ã¢Å“â€œ Inf jump fixed for mobile (re-jumps on land)")
+print("Ã¢Å“â€œ A.LEFT/A.RIGHT auto-reset button when movement completes")
+print("Ã¢Å“â€œ Drag uses btn.InputChanged - joystick no longer moves buttons")
