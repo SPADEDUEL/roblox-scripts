@@ -1143,6 +1143,13 @@ if true then -- mobile buttons (always enabled)
             TweenService:Create(batSwBg, TweenInfo.new(0.2), {BackgroundColor3 = on and C_PURPLE or C_SW_OFF}):Play()
             TweenService:Create(batSwCircle, TweenInfo.new(0.2, Enum.EasingStyle.Back), {Position = on and UDim2.new(1,-19,0.5,-8) or UDim2.new(0,3,0.5,-8)}):Play()
         end
+        -- Turn off A.LEFT and A.RIGHT when BAT turns on
+        if on then
+            if MobileButtons["A.LEFT"] then MobileButtons["A.LEFT"].setState(false) end
+            if MobileButtons["A.RIGHT"] then MobileButtons["A.RIGHT"].setState(false) end
+            if setAutoLeft then setAutoLeft(false) end
+            if setAutoRight then setAutoRight(false) end
+        end
     end)
 
     createMobileButton("UI", col1X, startY + (BTN_H+GAP)*3, Color3.fromRGB(130, 130, 130), function(on)
@@ -1151,21 +1158,52 @@ if true then -- mobile buttons (always enabled)
 
     -- COL 2: A.LEFT, A.RIGHT, INF JMP, LOCK (stacked top to bottom, right column)
     createMobileButton("A.LEFT", col2X, startY + (BTN_H+GAP)*0, Color3.fromRGB(80, 200, 120), function(on)
-        if setAutoLeft then
-            setAutoLeft(on)
+        if setAutoLeft then setAutoLeft(on) end
+        if on then
+            -- Turn off BAT and A.RIGHT
+            autoBatToggled = false
+            if MobileButtons["BAT"] then MobileButtons["BAT"].setState(false) end
+            if batSwBg then TweenService:Create(batSwBg, TweenInfo.new(0.2), {BackgroundColor3 = C_SW_OFF}):Play() end
+            if batSwCircle then TweenService:Create(batSwCircle, TweenInfo.new(0.2, Enum.EasingStyle.Back), {Position = UDim2.new(0,3,0.5,-8)}):Play() end
+            if MobileButtons["A.RIGHT"] then MobileButtons["A.RIGHT"].setState(false) end
+            if setAutoRight then setAutoRight(false) end
         end
     end)
 
     createMobileButton("A.RIGHT", col2X, startY + (BTN_H+GAP)*1, Color3.fromRGB(200, 80, 220), function(on)
-        if setAutoRight then
-            setAutoRight(on)
+        if setAutoRight then setAutoRight(on) end
+        if on then
+            -- Turn off BAT and A.LEFT
+            autoBatToggled = false
+            if MobileButtons["BAT"] then MobileButtons["BAT"].setState(false) end
+            if batSwBg then TweenService:Create(batSwBg, TweenInfo.new(0.2), {BackgroundColor3 = C_SW_OFF}):Play() end
+            if batSwCircle then TweenService:Create(batSwCircle, TweenInfo.new(0.2, Enum.EasingStyle.Back), {Position = UDim2.new(0,3,0.5,-8)}):Play() end
+            if MobileButtons["A.LEFT"] then MobileButtons["A.LEFT"].setState(false) end
+            if setAutoLeft then setAutoLeft(false) end
         end
     end)
 
-    createMobileButton("INF JMP", col2X, startY + (BTN_H+GAP)*2, Color3.fromRGB(255, 220, 0), function(on)
-        Enabled.InfiniteJump = on
-        if VisualSetters.InfiniteJump then VisualSetters.InfiniteJump(on) end
-        if on then startInfiniteJump() else stopInfiniteJump() end
+    createMobileButton("DROP", col2X, startY + (BTN_H+GAP)*2, Color3.fromRGB(255, 220, 0), function(on)
+        if not on then return end
+        -- One-shot: launch up fast then drop down fast, no character reset
+        task.spawn(function()
+            local char = LocalPlayer.Character; if not char then return end
+            local rp = char:FindFirstChild("HumanoidRootPart"); if not rp then return end
+            local hum = char:FindFirstChildOfClass("Humanoid"); if not hum then return end
+            local origGravity = workspace.Gravity
+            -- Launch up
+            hum:ChangeState(Enum.HumanoidStateType.Jumping)
+            rp.AssemblyLinearVelocity = Vector3.new(rp.AssemblyLinearVelocity.X, 120, rp.AssemblyLinearVelocity.Z)
+            task.wait(0.35)
+            -- Kill upward velocity and drop fast
+            workspace.Gravity = 400
+            rp.AssemblyLinearVelocity = Vector3.new(rp.AssemblyLinearVelocity.X, -80, rp.AssemblyLinearVelocity.Z)
+            task.wait(0.4)
+            -- Restore gravity
+            workspace.Gravity = origGravity
+            -- Reset button state
+            if MobileButtons["DROP"] then MobileButtons["DROP"].setState(false) end
+        end)
     end)
 
     -- TP DOWN button Ã¢â‚¬â€ stored in MobileButtons so Btn Scale slider works
@@ -3099,7 +3137,7 @@ task.spawn(function()
         if MobileButtons["BAT"] and autoBatToggled then MobileButtons["BAT"].setState(true) end
         if MobileButtons["A.LEFT"] and Enabled.AutoLeftEnabled then MobileButtons["A.LEFT"].setState(true) end
         if MobileButtons["A.RIGHT"] and Enabled.AutoRightEnabled then MobileButtons["A.RIGHT"].setState(true) end
-        if MobileButtons["INF JMP"] and Enabled.InfiniteJump then MobileButtons["INF JMP"].setState(true) end
+        -- DROP is one-shot, no restore needed
     end
 end)
 
