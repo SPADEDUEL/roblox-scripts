@@ -1260,14 +1260,14 @@ if true then -- mobile buttons (always enabled)
     do
         local uiToggleBtn = Instance.new("TextButton")
         uiToggleBtn.Name = "UI_TOGGLE"
-        uiToggleBtn.Size = UDim2.new(0, BTN_H, 0, BTN_H)   -- square = circle
+        uiToggleBtn.Size = UDim2.new(0, 70, 0, 70)   -- bigger circle
         uiToggleBtn.Position = UDim2.new(0, 8, 0, startY + (BTN_H+GAP)*3)
         uiToggleBtn.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
         uiToggleBtn.BorderSizePixel = 0
         uiToggleBtn.Text = "S"
         uiToggleBtn.TextColor3 = Color3.fromRGB(210, 20, 20)
         uiToggleBtn.Font = Enum.Font.GothamBlack
-        uiToggleBtn.TextSize = 22
+        uiToggleBtn.TextSize = 30
         uiToggleBtn.AutoButtonColor = false
         uiToggleBtn.ZIndex = 10002
         uiToggleBtn.Parent = mobileGui
@@ -1284,6 +1284,18 @@ if true then -- mobile buttons (always enabled)
 
         local uiDragging, uiMoved = false, false
         local uiDragStart, uiStartPos = Vector2.zero, Vector2.zero
+        local uiLastToggle = 0
+
+        local function doUiToggle()
+            local now = tick()
+            if now - uiLastToggle < 0.3 then return end  -- debounce double-fire
+            uiLastToggle = now
+            local visible = main and not main.Visible or false
+            if main then main.Visible = visible end
+            uiToggleBtn.BackgroundColor3 = visible and Color3.fromRGB(210,20,20) or Color3.fromRGB(20,20,20)
+            uiToggleBtn.TextColor3 = visible and Color3.fromRGB(255,255,255) or Color3.fromRGB(210,20,20)
+        end
+
         uiToggleBtn.InputBegan:Connect(function(inp)
             if inp.UserInputType == Enum.UserInputType.Touch or inp.UserInputType == Enum.UserInputType.MouseButton1 then
                 uiDragging = true; uiMoved = false
@@ -1303,21 +1315,8 @@ if true then -- mobile buttons (always enabled)
         end)
         uiToggleBtn.InputEnded:Connect(function(inp)
             if inp.UserInputType == Enum.UserInputType.Touch or inp.UserInputType == Enum.UserInputType.MouseButton1 then
-                if uiDragging and not uiMoved then
-                    local visible = main and not main.Visible or false
-                    if main then main.Visible = visible end
-                    uiToggleBtn.BackgroundColor3 = visible and Color3.fromRGB(210,20,20) or Color3.fromRGB(20,20,20)
-                    uiToggleBtn.TextColor3 = visible and Color3.fromRGB(255,255,255) or Color3.fromRGB(210,20,20)
-                end
+                if uiDragging and not uiMoved then doUiToggle() end
                 uiDragging = false
-            end
-        end)
-        uiToggleBtn.MouseButton1Click:Connect(function()
-            if not uiMoved then
-                local visible = main and not main.Visible or false
-                if main then main.Visible = visible end
-                uiToggleBtn.BackgroundColor3 = visible and Color3.fromRGB(210,20,20) or Color3.fromRGB(20,20,20)
-                uiToggleBtn.TextColor3 = visible and Color3.fromRGB(255,255,255) or Color3.fromRGB(210,20,20)
             end
         end)
     end
@@ -1475,8 +1474,12 @@ if true then -- mobile buttons (always enabled)
 
         local lockDragging, lockMoved = false, false
         local lockDragStart, lockStartPos = Vector2.zero, Vector2.zero
+        local lockLastToggle = 0
 
         local function toggleLock()
+            local now = tick()
+            if now - lockLastToggle < 0.3 then return end  -- debounce
+            lockLastToggle = now
             buttonsLocked = not buttonsLocked
             if buttonsLocked then
                 lockBtn.Text = "LOCK"
@@ -1513,9 +1516,6 @@ if true then -- mobile buttons (always enabled)
                 if lockDragging and not lockMoved then toggleLock() end
                 lockDragging = false
             end
-        end)
-        lockBtn.MouseButton1Click:Connect(function()
-            if not lockMoved then toggleLock() end
         end)
     end
 
