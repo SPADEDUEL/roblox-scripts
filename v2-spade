@@ -43,14 +43,14 @@ local AutoRightEnabled = false
 -- Customizable 5-waypoint patrol (Spade Hub system)
 local leftWaypoints = {
     Vector3.new(-476.00, -6.28,  93.00),  -- L1
-    Vector3.new(-485.00, -4.95,  94.00),  -- L2
+    Vector3.new(-487.00, -4.95,  94.00),  -- L2
     Vector3.new(-475.00, -6.99,  93.29),  -- L3
     Vector3.new(-475.00, -6.99,  26.00),  -- L4
     Vector3.new(-485.00, -6.99,  26.00),  -- L5
 }
 local rightWaypoints = {
     Vector3.new(-475.00, -6.99,  26.00),  -- R1
-    Vector3.new(-485.00, -5.09,  25.00),  -- R2
+    Vector3.new(-487.00, -5.09,  25.00),  -- R2
     Vector3.new(-475.00, -6.99,  26.00),  -- R3
     Vector3.new(-475.00, -6.99,  95.00),  -- R4
     Vector3.new(-485.00, -6.99,  95.00),  -- R5
@@ -805,117 +805,160 @@ local function stopAutoRight()
     if patrolConn and patrolMode == "none" then patrolConn:Disconnect(); patrolConn = nil end
 end
 -- Bat System
-local SAFE_DELAY = 0.08
+local SAFE_DELAY       = 0.08
+local BAT_COOLDOWN     = 0.55   -- realistic bat swing cooldown
+local FLY_BASE_SPEED   = 56.5
+local HIT_RANGE        = 5.5
+local BRAKE_RANGE      = 8      -- start braking when this close
+local ANGLE_THRESHOLD  = 0.55   -- dot product min to fire swing (facing check)
+local lastSwingTime    = 0
+local lockedTarget     = nil    -- sticky target lock
+local currentVelX      = 0
+local currentVelZ      = 0
+local ACCEL            = 0.18   -- velocity smoothing factor
 
 local function getBat()
     local char = LocalPlayer.Character
     if not char then return nil end
     local tool = char:FindFirstChild("Bat")
     if tool then return tool end
-    
     local backpack = LocalPlayer:FindFirstChild("Backpack")
     if backpack then
         tool = backpack:FindFirstChild("Bat")
-        if tool then
-            tool.Parent = char
-            return tool
-        end
+        if tool then tool.Parent = char; return tool end
     end
     return nil
 end
 
-local function tryHitBat()
-    if hittingCooldown then return end
-    hittingCooldown = true
-    
-    local bat = getBat()
-    if bat then
-        pcall(function()
-            bat:Activate()
-            local evt = bat:FindFirstChildWhichIsA("RemoteEvent")
-            if evt then evt:FireServer() end
-        end)
-    end
-    
-    task.delay(SAFE_DELAY, function() hittingCooldown = false end)
+local function canSwing()
+    return tick() - lastSwingTime >= BAT_COOLDOWN and not hittingCooldown
 end
 
--- Desync detection: track each player's last known position + time
-local playerPosCache = {}
-local DESYNC_STILL_TIME  = 0.6  -- seconds position unchanged = suspect desynced
-local DESYNC_VEL_THRESH  = 1.5  -- velocity below this = not moving on server
+local function tryHitBat()
+    if not canSwing() then return end
+    hittingCooldown = true
+    lastSwingTime = tick()
+    -- Human-like random delay before swing
+    local delay = 0.05 + math.random() * 0.1
+    task.delay(delay, function()
+        local bat = getBat()
+        if bat then
+            pcall(function()
+                bat:Activate()
+                local evt = bat:FindFirstChildWhichIsA("RemoteEvent")
+                if evt then evt:FireServer() end
+            end)
+        end
+        task.delay(SAFE_DELAY, function() hittingCooldown = false end)
+    end)
+end
 
-local function isPlayerDesynced(plr)
-    local char = plr.Character
-    if not char then return false end
-    local rp = char:FindFirstChild("HumanoidRootPart")
-    local hum = char:FindFirstChildOfClass("Humanoid")
-    if not rp or not hum then return false end
+-- Check if target is behind a wall
+local function hasLineOfSight(fromPos, toPos)
+    local params = RaycastParams.new()
+    local char = LocalPlayer.Character
+    params.FilterDescendantsInstances = char and {char, workspace.Terrain} or {workspace.Terrain}
+    params.FilterType = Enum.RaycastFilterType.Exclude
+    local dir = toPos - fromPos
+    local res = workspace:Raycast(fromPos, dir, params)
+    return res == nil -- no wall in the way
+end
 
-    local now = tick()
-    local uid = plr.UserId
-    local cached = playerPosCache[uid]
-    local vel = rp.AssemblyLinearVelocity
-    local velMag = Vector3.new(vel.X, 0, vel.Z).Magnitude
-    local state = hum:GetState()
-
-    if not cached then
-        playerPosCache[uid] = { pos = rp.Position, time = now }
-        return false
-    end
-
-    local moved = (rp.Position - cached.pos).Magnitude
-    if moved > 0.5 then
-        -- Position changed, reset cache
-        playerPosCache[uid] = { pos = rp.Position, time = now }
-        return false
-    end
-
-    -- Position hasn't changed
-    local stillFor = now - cached.time
-    local velFrozen = velMag < DESYNC_VEL_THRESH
-    local statePhysics = state == Enum.HumanoidStateType.Physics
-
-    return stillFor >= DESYNC_STILL_TIME and (velFrozen or statePhysics)
+-- Predict enemy position based on velocity
+local function getPredictedPosition(targetHRP, travelDist)
+    local vel = targetHRP.AssemblyLinearVelocity
+    local speed = FLY_BASE_SPEED
+    local travelTime = travelDist / speed
+    -- Clamp prediction so we don't overshoot wildly
+    travelTime = math.clamp(travelTime, 0, 0.4)
+    return targetHRP.Position + Vector3.new(vel.X, 0, vel.Z) * travelTime
 end
 
 local function getClosestPlayer()
-    local closestPlayer = nil
-    local closestDist = math.huge
-    local desyncedTarget = nil
-    local desyncedDist = math.huge
+    local bestPlayer = nil
+    local bestScore  = math.huge
 
     for _, plr in pairs(Players:GetPlayers()) do
-        if plr ~= LocalPlayer and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
-            local targetHRP = plr.Character.HumanoidRootPart
-            local dist = (hrp.Position - targetHRP.Position).Magnitude
-            if isPlayerDesynced(plr) then
-                -- Prioritize desynced players â€” target them even if further
-                if dist < desyncedDist then
-                    desyncedDist = dist
-                    desyncedTarget = plr
-                end
-            else
-                if dist < closestDist then
-                    closestDist = dist
-                    closestPlayer = plr
+        if plr ~= LocalPlayer and plr.Character then
+            local targetHRP = plr.Character:FindFirstChild("HumanoidRootPart")
+            local targetHum = plr.Character:FindFirstChildOfClass("Humanoid")
+            if targetHRP and targetHum and targetHum.Health > 0 then
+                local dist = (hrp.Position - targetHRP.Position).Magnitude
+                -- Prefer line-of-sight targets (lower score = better)
+                local losPenalty = hasLineOfSight(hrp.Position, targetHRP.Position) and 0 or 20
+                local score = dist + losPenalty
+                if score < bestScore then
+                    bestScore = score
+                    bestPlayer = plr
                 end
             end
         end
     end
-    -- Desynced player takes priority over normal closest
-    if desyncedTarget then
-        return desyncedTarget, desyncedDist
+    -- Sticky lock: keep same target unless someone is significantly closer
+    if lockedTarget and lockedTarget.Character then
+        local lockedHRP = lockedTarget.Character:FindFirstChild("HumanoidRootPart")
+        local lockedHum = lockedTarget.Character:FindFirstChildOfClass("Humanoid")
+        if lockedHRP and lockedHum and lockedHum.Health > 0 then
+            local lockedDist = (hrp.Position - lockedHRP.Position).Magnitude
+            local bestDist = bestPlayer and (hrp.Position - bestPlayer.Character.HumanoidRootPart.Position).Magnitude or math.huge
+            -- Only switch if new target is 8+ studs closer
+            if bestDist < lockedDist - 8 then
+                lockedTarget = bestPlayer
+            end
+        else
+            lockedTarget = bestPlayer
+        end
+    else
+        lockedTarget = bestPlayer
     end
-    return closestPlayer, closestDist
+
+    if lockedTarget and lockedTarget.Character then
+        local lHRP = lockedTarget.Character:FindFirstChild("HumanoidRootPart")
+        if lHRP then
+            return lockedTarget, (hrp.Position - lHRP.Position).Magnitude
+        end
+    end
+    return bestPlayer, bestScore
 end
 
 local function flyToFrontOfTarget(targetHRP)
     if not hrp then return end
-    local forward = targetHRP.CFrame.LookVector
-    local frontPos = targetHRP.Position + forward * 1.5
-    local direction = (frontPos - hrp.Position).Unit
-    hrp.AssemblyLinearVelocity = Vector3.new(direction.X * 56.5, direction.Y * 56.5, direction.Z * 56.5)
+
+    local dist = (hrp.Position - targetHRP.Position).Magnitude
+    local predicted = getPredictedPosition(targetHRP, dist)
+    local forward   = targetHRP.CFrame.LookVector
+    local frontPos  = predicted + forward * 1.5
+    local direction = (frontPos - hrp.Position)
+    local dirMag    = direction.Magnitude
+
+    -- Speed: full speed far away, brake when close
+    local rawSpeed
+    if dist <= BRAKE_RANGE then
+        rawSpeed = FLY_BASE_SPEED * (dist / BRAKE_RANGE)
+        rawSpeed = math.max(rawSpeed, 10)
+    else
+        -- Randomize slightly for anti-detection
+        rawSpeed = FLY_BASE_SPEED + (math.random() * 6 - 3)
+    end
+
+    local unit = dirMag > 0.1 and direction.Unit or Vector3.new(0, 0, 0)
+
+    -- Smooth velocity with acceleration (no instant teleport feel)
+    currentVelX = currentVelX + (unit.X * rawSpeed - currentVelX) * ACCEL
+    currentVelZ = currentVelZ + (unit.Z * rawSpeed - currentVelZ) * ACCEL
+
+    -- Force character to always face target
+    local lookAt = Vector3.new(targetHRP.Position.X, hrp.Position.Y, targetHRP.Position.Z)
+    hrp.CFrame = CFrame.new(hrp.Position, lookAt)
+
+    hrp.AssemblyLinearVelocity = Vector3.new(currentVelX, unit.Y * rawSpeed, currentVelZ)
+end
+
+local function isFacingTarget(targetHRP)
+    if not hrp then return false end
+    local toTarget = (targetHRP.Position - hrp.Position).Unit
+    local myLook   = hrp.CFrame.LookVector
+    return toTarget:Dot(myLook) >= ANGLE_THRESHOLD
 end
 
 -- Settings Functions
@@ -1205,9 +1248,71 @@ if true then -- mobile buttons (always enabled)
         end
     end)
 
-    createMobileButton("UI", col1X, startY + (BTN_H+GAP)*3, Color3.fromRGB(130, 130, 130), function(on)
-        if main then main.Visible = not on end
-    end)
+    -- UI button: round "S" logo on left edge
+    do
+        local uiToggleBtn = Instance.new("TextButton")
+        uiToggleBtn.Name = "UI_TOGGLE"
+        uiToggleBtn.Size = UDim2.new(0, BTN_H, 0, BTN_H)   -- square = circle
+        uiToggleBtn.Position = UDim2.new(0, -BTN_H + 10, 0, startY + (BTN_H+GAP)*3)
+        uiToggleBtn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+        uiToggleBtn.BorderSizePixel = 0
+        uiToggleBtn.Text = "S"
+        uiToggleBtn.TextColor3 = Color3.fromRGB(210, 20, 20)
+        uiToggleBtn.Font = Enum.Font.GothamBlack
+        uiToggleBtn.TextSize = 22
+        uiToggleBtn.AutoButtonColor = false
+        uiToggleBtn.ZIndex = 10002
+        uiToggleBtn.Parent = mobileGui
+        Instance.new("UICorner", uiToggleBtn).CornerRadius = UDim.new(1, 0)  -- full circle
+        local uiStroke = Instance.new("UIStroke", uiToggleBtn)
+        uiStroke.Color = Color3.fromRGB(210, 20, 20)
+        uiStroke.Thickness = 2.5
+
+        MobileButtons["UI"] = { btn = uiToggleBtn, setState = function(on)
+            if main then main.Visible = on end
+            uiToggleBtn.BackgroundColor3 = on and Color3.fromRGB(210,20,20) or Color3.fromRGB(255,255,255)
+            uiToggleBtn.TextColor3 = on and Color3.fromRGB(255,255,255) or Color3.fromRGB(210,20,20)
+        end}
+
+        local uiDragging, uiMoved = false, false
+        local uiDragStart, uiStartPos = Vector2.zero, Vector2.zero
+        uiToggleBtn.InputBegan:Connect(function(inp)
+            if inp.UserInputType == Enum.UserInputType.Touch or inp.UserInputType == Enum.UserInputType.MouseButton1 then
+                uiDragging = true; uiMoved = false
+                uiDragStart = Vector2.new(inp.Position.X, inp.Position.Y)
+                uiStartPos  = Vector2.new(uiToggleBtn.AbsolutePosition.X, uiToggleBtn.AbsolutePosition.Y)
+            end
+        end)
+        uiToggleBtn.InputChanged:Connect(function(inp)
+            if not uiDragging then return end
+            if inp.UserInputType == Enum.UserInputType.Touch or inp.UserInputType == Enum.UserInputType.MouseMovement then
+                local delta = Vector2.new(inp.Position.X, inp.Position.Y) - uiDragStart
+                if delta.Magnitude > 10 then
+                    uiMoved = true
+                    uiToggleBtn.Position = UDim2.new(0, uiStartPos.X + delta.X, 0, uiStartPos.Y + delta.Y)
+                end
+            end
+        end)
+        uiToggleBtn.InputEnded:Connect(function(inp)
+            if inp.UserInputType == Enum.UserInputType.Touch or inp.UserInputType == Enum.UserInputType.MouseButton1 then
+                if uiDragging and not uiMoved then
+                    local visible = main and not main.Visible or false
+                    if main then main.Visible = visible end
+                    uiToggleBtn.BackgroundColor3 = visible and Color3.fromRGB(210,20,20) or Color3.fromRGB(255,255,255)
+                    uiToggleBtn.TextColor3 = visible and Color3.fromRGB(255,255,255) or Color3.fromRGB(210,20,20)
+                end
+                uiDragging = false
+            end
+        end)
+        uiToggleBtn.MouseButton1Click:Connect(function()
+            if not uiMoved then
+                local visible = main and not main.Visible or false
+                if main then main.Visible = visible end
+                uiToggleBtn.BackgroundColor3 = visible and Color3.fromRGB(210,20,20) or Color3.fromRGB(255,255,255)
+                uiToggleBtn.TextColor3 = visible and Color3.fromRGB(255,255,255) or Color3.fromRGB(210,20,20)
+            end
+        end)
+    end
 
     -- COL 2: A.LEFT, A.RIGHT, INF JMP, LOCK (stacked top to bottom, right column)
     createMobileButton("A.LEFT", col2X, startY + (BTN_H+GAP)*0, Color3.fromRGB(80, 200, 120), function(on)
@@ -1416,7 +1521,7 @@ end
 main = Instance.new("Frame")
 main.Name = "Main"
 main.Size = UDim2.new(0, 560, 0, 540)
-main.Position = UDim2.new(0, 20, 0, 20)
+main.Position = UDim2.new(0.5, -280, 0.5, -270)
 main.BackgroundColor3 = C_BG
 main.BorderSizePixel = 0
 main.Active = true
@@ -1428,6 +1533,7 @@ local deviceType = "Desktop"
 if isMobile then
     deviceType = "Mobile"
     main.Size = UDim2.new(0, 400, 0, 400)
+    main.Position = UDim2.new(0.5, -200, 0.5, -200)
 end
 
 Instance.new("UICorner", main).CornerRadius = UDim.new(0, 24)
@@ -2244,7 +2350,9 @@ local function makeSlider(parent, lbl, minVal, maxVal, defaultVal, onChanged)
     valTxt.Size = UDim2.new(0, 50, 0, 20)
     valTxt.Position = UDim2.new(1, -60, 0.5, -10)
     valTxt.BackgroundTransparency = 1
-    valTxt.Text = tostring(math.floor(defaultVal))
+    valTxt.Text = (lbl == "FOV" or lbl == "Grab Radius" or lbl == "Btn Scale")
+        and tostring(math.floor(defaultVal))
+        or string.format("%.1f", math.floor(defaultVal * 10 + 0.5) / 10)
     valTxt.TextColor3 = C_PURPLE
     valTxt.Font = Enum.Font.GothamBold
     valTxt.TextSize = 13
@@ -2900,10 +3008,24 @@ end)
 RunService.Heartbeat:Connect(function()
     if autoBatToggled and h and hrp then
         local target, dist = getClosestPlayer()
-        if target and target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
-            flyToFrontOfTarget(target.Character.HumanoidRootPart)
-            if dist <= 5 then tryHitBat() end
+        if target and target.Character then
+            local targetHRP = target.Character:FindFirstChild("HumanoidRootPart")
+            if targetHRP then
+                flyToFrontOfTarget(targetHRP)
+                -- Only swing when close AND actually facing the target
+                if dist <= HIT_RANGE and isFacingTarget(targetHRP) then
+                    tryHitBat()
+                end
+            end
+        else
+            -- No target â€” bleed off velocity smoothly
+            currentVelX = currentVelX * 0.7
+            currentVelZ = currentVelZ * 0.7
+            lockedTarget = nil
         end
+    else
+        currentVelX = 0
+        currentVelZ = 0
     end
 end)
 
