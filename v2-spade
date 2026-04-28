@@ -134,13 +134,13 @@ local ProgressLabel, ProgressPercentLabel, ProgressBarFill, RadiusInput, Duratio
 local saveConfigBtn
 
 -- Colors (Red & White theme)
-local C_BG     = Color3.fromRGB(255, 255, 255)
-local C_PURPLE = Color3.fromRGB(210,  20,  20)
-local C_PURPLE2= Color3.fromRGB(240,  60,  60)
-local C_DIM    = Color3.fromRGB(150,   0,   0)
-local C_SW_OFF = Color3.fromRGB(210, 210, 210)
-local C_WHITE  = Color3.fromRGB(255, 255, 255)
-local C_ROW_BG = Color3.fromRGB(255, 245, 245)
+local C_BG     = Color3.fromRGB(15,  15,  15)   -- near black background
+local C_PURPLE = Color3.fromRGB(210,  20,  20)   -- main red
+local C_PURPLE2= Color3.fromRGB(240,  60,  60)   -- lighter red
+local C_DIM    = Color3.fromRGB(180,  30,  30)   -- dim red
+local C_SW_OFF = Color3.fromRGB(60,   60,  60)   -- dark grey switch off
+local C_WHITE  = Color3.fromRGB(255, 255, 255)   -- white text
+local C_ROW_BG = Color3.fromRGB(28,  10,  10)    -- dark red-tinted rows
 
 -- Utility Functions
 local function getHRP()
@@ -937,21 +937,29 @@ local function flyToFrontOfTarget(targetHRP)
         rawSpeed = FLY_BASE_SPEED * (dist / BRAKE_RANGE)
         rawSpeed = math.max(rawSpeed, 10)
     else
-        -- Randomize slightly for anti-detection
         rawSpeed = FLY_BASE_SPEED + (math.random() * 6 - 3)
     end
 
     local unit = dirMag > 0.1 and direction.Unit or Vector3.new(0, 0, 0)
 
-    -- Smooth velocity with acceleration (no instant teleport feel)
+    -- Smooth velocity
     currentVelX = currentVelX + (unit.X * rawSpeed - currentVelX) * ACCEL
     currentVelZ = currentVelZ + (unit.Z * rawSpeed - currentVelZ) * ACCEL
 
-    -- Force character to always face target
-    local lookAt = Vector3.new(targetHRP.Position.X, hrp.Position.Y, targetHRP.Position.Z)
-    hrp.CFrame = CFrame.new(hrp.Position, lookAt)
-
     hrp.AssemblyLinearVelocity = Vector3.new(currentVelX, unit.Y * rawSpeed, currentVelZ)
+
+    -- Face target using AutoRotate + MoveDirection instead of setting CFrame
+    -- This avoids triggering character reset
+    local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+    if hum then
+        local toTarget = (targetHRP.Position - hrp.Position)
+        local flatDir  = Vector3.new(toTarget.X, 0, toTarget.Z)
+        if flatDir.Magnitude > 0.1 then
+            hum.AutoRotate = false
+            local targetCF = CFrame.new(hrp.Position, hrp.Position + flatDir)
+            hrp.CFrame = hrp.CFrame:Lerp(targetCF, 0.25)
+        end
+    end
 end
 
 local function isFacingTarget(targetHRP)
@@ -1135,7 +1143,7 @@ if true then -- mobile buttons (always enabled)
         btn.Name = name
         btn.Size = UDim2.new(0, BTN_W, 0, BTN_H)
         btn.Position = UDim2.new(0, startX, 0, startY)
-        btn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+        btn.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
         btn.BackgroundTransparency = 0
         btn.BorderSizePixel = 0
         btn.Text = name
@@ -1163,7 +1171,7 @@ if true then -- mobile buttons (always enabled)
                 btn.BackgroundTransparency = 0
                 btn.TextColor3 = Color3.fromRGB(255, 255, 255)
             else
-                btn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+                btn.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
                 btn.BackgroundTransparency = 0
                 btn.TextColor3 = Color3.fromRGB(210, 20, 20)
             end
@@ -1253,8 +1261,8 @@ if true then -- mobile buttons (always enabled)
         local uiToggleBtn = Instance.new("TextButton")
         uiToggleBtn.Name = "UI_TOGGLE"
         uiToggleBtn.Size = UDim2.new(0, BTN_H, 0, BTN_H)   -- square = circle
-        uiToggleBtn.Position = UDim2.new(0, -BTN_H + 10, 0, startY + (BTN_H+GAP)*3)
-        uiToggleBtn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+        uiToggleBtn.Position = UDim2.new(0, 8, 0, startY + (BTN_H+GAP)*3)
+        uiToggleBtn.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
         uiToggleBtn.BorderSizePixel = 0
         uiToggleBtn.Text = "S"
         uiToggleBtn.TextColor3 = Color3.fromRGB(210, 20, 20)
@@ -1266,11 +1274,11 @@ if true then -- mobile buttons (always enabled)
         Instance.new("UICorner", uiToggleBtn).CornerRadius = UDim.new(1, 0)  -- full circle
         local uiStroke = Instance.new("UIStroke", uiToggleBtn)
         uiStroke.Color = Color3.fromRGB(210, 20, 20)
-        uiStroke.Thickness = 2.5
+        uiStroke.Thickness = 3
 
         MobileButtons["UI"] = { btn = uiToggleBtn, setState = function(on)
             if main then main.Visible = on end
-            uiToggleBtn.BackgroundColor3 = on and Color3.fromRGB(210,20,20) or Color3.fromRGB(255,255,255)
+            uiToggleBtn.BackgroundColor3 = on and Color3.fromRGB(210,20,20) or Color3.fromRGB(20,20,20)
             uiToggleBtn.TextColor3 = on and Color3.fromRGB(255,255,255) or Color3.fromRGB(210,20,20)
         end}
 
@@ -1298,7 +1306,7 @@ if true then -- mobile buttons (always enabled)
                 if uiDragging and not uiMoved then
                     local visible = main and not main.Visible or false
                     if main then main.Visible = visible end
-                    uiToggleBtn.BackgroundColor3 = visible and Color3.fromRGB(210,20,20) or Color3.fromRGB(255,255,255)
+                    uiToggleBtn.BackgroundColor3 = visible and Color3.fromRGB(210,20,20) or Color3.fromRGB(20,20,20)
                     uiToggleBtn.TextColor3 = visible and Color3.fromRGB(255,255,255) or Color3.fromRGB(210,20,20)
                 end
                 uiDragging = false
@@ -1308,7 +1316,7 @@ if true then -- mobile buttons (always enabled)
             if not uiMoved then
                 local visible = main and not main.Visible or false
                 if main then main.Visible = visible end
-                uiToggleBtn.BackgroundColor3 = visible and Color3.fromRGB(210,20,20) or Color3.fromRGB(255,255,255)
+                uiToggleBtn.BackgroundColor3 = visible and Color3.fromRGB(210,20,20) or Color3.fromRGB(20,20,20)
                 uiToggleBtn.TextColor3 = visible and Color3.fromRGB(255,255,255) or Color3.fromRGB(210,20,20)
             end
         end)
@@ -1377,7 +1385,7 @@ if true then -- mobile buttons (always enabled)
         tpBtn.Name = "TP DOWN"
         tpBtn.Size = UDim2.new(0, BTN_W, 0, BTN_H)
         tpBtn.Position = UDim2.new(0, col2X, 0, startY + (BTN_H+GAP)*3)
-        tpBtn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+        tpBtn.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
         tpBtn.BackgroundTransparency = 0
         tpBtn.BorderSizePixel = 0
         tpBtn.Text = "TP DOWN"
@@ -1409,7 +1417,7 @@ if true then -- mobile buttons (always enabled)
             tpBtn.BackgroundColor3 = Color3.fromRGB(210, 20, 20)
             tpBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
             task.delay(0.3, function()
-                tpBtn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+                tpBtn.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
                 tpBtn.TextColor3 = Color3.fromRGB(210, 20, 20)
             end)
         end
@@ -1449,9 +1457,9 @@ if true then -- mobile buttons (always enabled)
         local lockBtn = Instance.new("TextButton")
         lockBtn.Name = "LOCK"
         lockBtn.Size = UDim2.new(0, BTN_W, 0, BTN_H)
-        lockBtn.Position = UDim2.new(0, MARGIN, 0, startY + (BTN_H+GAP)*3)
-        lockBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-        lockBtn.BackgroundTransparency = 0.1
+        lockBtn.Position = UDim2.new(0, col1X, 0, startY + (BTN_H+GAP)*4)
+        lockBtn.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+        lockBtn.BackgroundTransparency = 0
         lockBtn.BorderSizePixel = 0
         lockBtn.Text = "UNLOCK"
         lockBtn.TextColor3 = Color3.fromRGB(200, 200, 200)
@@ -1477,8 +1485,8 @@ if true then -- mobile buttons (always enabled)
                 lockBtn.TextColor3 = Color3.fromRGB(0, 0, 0)
             else
                 lockBtn.Text = "UNLOCK"
-                lockBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-                lockBtn.BackgroundTransparency = 0.1
+                lockBtn.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+                lockBtn.BackgroundTransparency = 0
                 lockBtn.TextColor3 = Color3.fromRGB(200, 200, 200)
             end
         end
@@ -1540,7 +1548,7 @@ Instance.new("UICorner", main).CornerRadius = UDim.new(0, 24)
 
 local mainStroke = Instance.new("UIStroke", main)
 mainStroke.Color = Color3.fromRGB(210, 20, 20)
-mainStroke.Thickness = 1.5
+mainStroke.Thickness = 2
 
 -- Dragging (Mouse + Touch)
 do
@@ -1595,7 +1603,7 @@ byLbl.Size = UDim2.new(1, 0, 0, 14)
 byLbl.Position = UDim2.new(0, 0, 0, 50)
 byLbl.BackgroundTransparency = 1
 byLbl.Text = "https://discord.gg/3DAdwMRtn"
-byLbl.TextColor3 = C_DIM
+byLbl.TextColor3 = Color3.fromRGB(150, 150, 150)
 byLbl.Font = Enum.Font.GothamBold
 byLbl.TextSize = 11
 byLbl.TextXAlignment = Enum.TextXAlignment.Center
@@ -1607,7 +1615,7 @@ closeBtn.Size = UDim2.new(0, 28, 0, 28)
 closeBtn.Position = UDim2.new(1, -38, 0, 12)
 closeBtn.BackgroundTransparency = 1
 closeBtn.Text = "x"
-closeBtn.TextColor3 = C_DIM
+closeBtn.TextColor3 = Color3.fromRGB(200, 200, 200)
 closeBtn.Font = Enum.Font.GothamBold
 closeBtn.TextSize = 18
 closeBtn.ZIndex = 6
@@ -1618,7 +1626,7 @@ closeBtn.MouseEnter:Connect(function()
     TweenService:Create(closeBtn, TweenInfo.new(0.12), {TextColor3 = Color3.fromRGB(255, 60, 60)}):Play()
 end)
 closeBtn.MouseLeave:Connect(function()
-    TweenService:Create(closeBtn, TweenInfo.new(0.12), {TextColor3 = C_DIM}):Play()
+    TweenService:Create(closeBtn, TweenInfo.new(0.12), {TextColor3 = Color3.fromRGB(255,255,255)}):Play()
 end)
 
 -- Touch support for close button
@@ -1631,7 +1639,7 @@ end)
 local sep = Instance.new("Frame")
 sep.Size = UDim2.new(1, -40, 0, 1)
 sep.Position = UDim2.new(0, 20, 0, 68)
-sep.BackgroundColor3 = Color3.fromRGB(220, 180, 180)
+sep.BackgroundColor3 = Color3.fromRGB(60, 20, 20)
 sep.BorderSizePixel = 0
 sep.ZIndex = 3
 sep.Parent = main
@@ -2026,7 +2034,7 @@ local function makeRow(keybindRefName, labelTxt, enabledKey, order, onToggle)
     clk.MouseEnter:Connect(function()
         playTick()
         TweenService:Create(nameLbl, TweenInfo.new(0.1), {TextColor3 = C_PURPLE2}):Play()
-        TweenService:Create(row, TweenInfo.new(0.12), {BackgroundColor3 = Color3.fromRGB(255, 225, 225)}):Play()
+        TweenService:Create(row, TweenInfo.new(0.12), {BackgroundColor3 = Color3.fromRGB(45, 15, 15)}):Play()
     end)
     clk.MouseLeave:Connect(function()
         TweenService:Create(nameLbl, TweenInfo.new(0.1), {TextColor3 = C_PURPLE}):Play()
@@ -2130,7 +2138,7 @@ local function makeManualRow(keybindRefName, labelTxt, order)
     clk.MouseEnter:Connect(function()
         playTick()
         TweenService:Create(nameLbl, TweenInfo.new(0.1), {TextColor3 = C_PURPLE2}):Play()
-        TweenService:Create(row, TweenInfo.new(0.12), {BackgroundColor3 = Color3.fromRGB(255, 225, 225)}):Play()
+        TweenService:Create(row, TweenInfo.new(0.12), {BackgroundColor3 = Color3.fromRGB(45, 15, 15)}):Play()
     end)
     clk.MouseLeave:Connect(function()
         TweenService:Create(nameLbl, TweenInfo.new(0.1), {TextColor3 = C_PURPLE}):Play()
@@ -2141,7 +2149,7 @@ local function makeManualRow(keybindRefName, labelTxt, order)
         if inp.UserInputType == Enum.UserInputType.Touch then
             playTick()
             TweenService:Create(nameLbl, TweenInfo.new(0.1), {TextColor3 = C_PURPLE2}):Play()
-            TweenService:Create(row, TweenInfo.new(0.12), {BackgroundColor3 = Color3.fromRGB(255, 225, 225)}):Play()
+            TweenService:Create(row, TweenInfo.new(0.12), {BackgroundColor3 = Color3.fromRGB(45, 15, 15)}):Play()
         end
     end)
     
@@ -2166,7 +2174,7 @@ local function makeSectionLbl(txt, order)
     l.Size = UDim2.new(1, 0, 1, 0)
     l.BackgroundTransparency = 1
     l.Text = txt:upper()
-    l.TextColor3 = Color3.fromRGB(180, 0, 0)
+    l.TextColor3 = Color3.fromRGB(220, 40, 40)
     l.Font = Enum.Font.GothamBold
     l.TextSize = 10
     l.TextXAlignment = Enum.TextXAlignment.Left
@@ -2293,7 +2301,7 @@ local function makeInputBox(parent, lbl, defaultTxt, onDone)
     box.BackgroundColor3 = Color3.fromRGB(14, 0, 22)
     box.BorderSizePixel = 0
     box.Text = defaultTxt
-    box.TextColor3 = C_PURPLE
+    box.TextColor3 = Color3.fromRGB(220, 40, 40)
     box.Font = Enum.Font.GothamBold
     box.TextSize = 13
     box.ClearTextOnFocus = false
@@ -2363,7 +2371,7 @@ local function makeSlider(parent, lbl, minVal, maxVal, defaultVal, onChanged)
     local trackBg = Instance.new("Frame")
     trackBg.Size = UDim2.new(0, 200, 0, 6)
     trackBg.Position = UDim2.new(0.38, 0, 0.5, -3)
-    trackBg.BackgroundColor3 = Color3.fromRGB(14, 0, 22)
+    trackBg.BackgroundColor3 = Color3.fromRGB(40, 10, 10)
     trackBg.BorderSizePixel = 0
     trackBg.ZIndex = 4
     trackBg.Parent = wrap
@@ -3026,6 +3034,9 @@ RunService.Heartbeat:Connect(function()
     else
         currentVelX = 0
         currentVelZ = 0
+        -- Restore AutoRotate when bat is off
+        local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+        if hum then hum.AutoRotate = true end
     end
 end)
 
