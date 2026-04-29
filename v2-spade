@@ -856,28 +856,9 @@ local function flyToFrontOfTarget(targetHRP)
     local frontPos = targetHRP.Position + forward * 1.5
     local direction = (frontPos - hrp.Position)
     local dist = direction.Magnitude
-
-    -- Full 3D direction including vertical so we tilt toward enemy if below/above
-    local unit = dist > 0.1 and direction.Unit or Vector3.new(0,0,0)
-
-    -- Face enemy: smoothly rotate HRP toward target using Lerp (no reset)
-    local toTarget = (targetHRP.Position - hrp.Position)
-    local flatDist = Vector3.new(toTarget.X, 0, toTarget.Z).Magnitude
-
-    if flatDist > 0.1 then
-        -- Build a CFrame that tilts the character toward the enemy vertically
-        local yAngle   = math.atan2(-toTarget.X, -toTarget.Z)
-        local xAngle   = math.atan2(toTarget.Y, flatDist)
-        -- Clamp vertical tilt so character doesn't flip upside down
-        xAngle = math.clamp(xAngle, math.rad(-60), math.rad(60))
-        local targetCF = CFrame.new(hrp.Position)
-            * CFrame.Angles(0, yAngle, 0)
-            * CFrame.Angles(xAngle, 0, 0)
-        hrp.CFrame = hrp.CFrame:Lerp(targetCF, 0.3)
-    end
-
-    -- 100 studs/s velocity toward front of target
-    hrp.AssemblyLinearVelocity = Vector3.new(unit.X * 100, unit.Y * 100, unit.Z * 100)
+    local unit = dist > 0.1 and direction.Unit or Vector3.new(0, 0, 0)
+    -- Use velocity only - no CFrame changes to avoid character reset
+    hrp.AssemblyLinearVelocity = Vector3.new(unit.X * 60, unit.Y * 60, unit.Z * 60)
 end
 
 -- Settings Functions
@@ -2926,19 +2907,11 @@ end)
 
 RunService.Heartbeat:Connect(function()
     if autoBatToggled and h and hrp then
-        local char = LocalPlayer.Character
-        local hum = char and char:FindFirstChildOfClass("Humanoid")
-        if hum then hum.AutoRotate = false end
         local target, dist = getClosestPlayer()
         if target and target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
             flyToFrontOfTarget(target.Character.HumanoidRootPart)
             if dist <= 7 then tryHitBat() end
         end
-    else
-        -- Restore normal movement when bat is off
-        local char = LocalPlayer.Character
-        local hum = char and char:FindFirstChildOfClass("Humanoid")
-        if hum then hum.AutoRotate = true end
     end
 end)
 
