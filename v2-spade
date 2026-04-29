@@ -43,14 +43,14 @@ local AutoRightEnabled = false
 -- Customizable 5-waypoint patrol (Spade Hub system)
 local leftWaypoints = {
     Vector3.new(-476.00, -6.28,  93.00),  -- L1
-    Vector3.new(-487.00, -4.95,  94.00),  -- L2
+    Vector3.new(-488.00, -4.95,  94.00),  -- L2
     Vector3.new(-475.00, -6.99,  93.29),  -- L3
     Vector3.new(-475.00, -6.99,  26.00),  -- L4
     Vector3.new(-485.00, -6.99,  26.00),  -- L5
 }
 local rightWaypoints = {
     Vector3.new(-475.00, -6.99,  26.00),  -- R1
-    Vector3.new(-487.00, -5.09,  25.00),  -- R2
+    Vector3.new(-488.00, -5.09,  25.00),  -- R2
     Vector3.new(-475.00, -6.99,  26.00),  -- R3
     Vector3.new(-475.00, -6.99,  95.00),  -- R4
     Vector3.new(-485.00, -6.99,  95.00),  -- R5
@@ -805,17 +805,7 @@ local function stopAutoRight()
     if patrolConn and patrolMode == "none" then patrolConn:Disconnect(); patrolConn = nil end
 end
 -- Bat System
-local SAFE_DELAY       = 0.08
-local BAT_COOLDOWN     = 0.55   -- realistic bat swing cooldown
-local FLY_BASE_SPEED   = 56.5
-local HIT_RANGE        = 5.5
-local BRAKE_RANGE      = 8      -- start braking when this close
-local ANGLE_THRESHOLD  = 0.55   -- dot product min to fire swing (facing check)
-local lastSwingTime    = 0
-local lockedTarget     = nil    -- sticky target lock
-local currentVelX      = 0
-local currentVelZ      = 0
-local ACCEL            = 0.18   -- velocity smoothing factor
+local SAFE_DELAY = 0.08
 
 local function getBat()
     local char = LocalPlayer.Character
@@ -830,143 +820,64 @@ local function getBat()
     return nil
 end
 
-local function canSwing()
-    return tick() - lastSwingTime >= BAT_COOLDOWN and not hittingCooldown
-end
-
 local function tryHitBat()
-    if not canSwing() then return end
+    if hittingCooldown then return end
     hittingCooldown = true
-    lastSwingTime = tick()
-    -- Human-like random delay before swing
-    local delay = 0.05 + math.random() * 0.1
-    task.delay(delay, function()
-        local bat = getBat()
-        if bat then
-            pcall(function()
-                bat:Activate()
-                local evt = bat:FindFirstChildWhichIsA("RemoteEvent")
-                if evt then evt:FireServer() end
-            end)
-        end
-        task.delay(SAFE_DELAY, function() hittingCooldown = false end)
-    end)
-end
-
--- Check if target is behind a wall
-local function hasLineOfSight(fromPos, toPos)
-    local params = RaycastParams.new()
-    local char = LocalPlayer.Character
-    params.FilterDescendantsInstances = char and {char, workspace.Terrain} or {workspace.Terrain}
-    params.FilterType = Enum.RaycastFilterType.Exclude
-    local dir = toPos - fromPos
-    local res = workspace:Raycast(fromPos, dir, params)
-    return res == nil -- no wall in the way
-end
-
--- Predict enemy position based on velocity
-local function getPredictedPosition(targetHRP, travelDist)
-    local vel = targetHRP.AssemblyLinearVelocity
-    local speed = FLY_BASE_SPEED
-    local travelTime = travelDist / speed
-    -- Clamp prediction so we don't overshoot wildly
-    travelTime = math.clamp(travelTime, 0, 0.4)
-    return targetHRP.Position + Vector3.new(vel.X, 0, vel.Z) * travelTime
+    local bat = getBat()
+    if bat then
+        pcall(function()
+            bat:Activate()
+            local evt = bat:FindFirstChildWhichIsA("RemoteEvent")
+            if evt then evt:FireServer() end
+        end)
+    end
+    task.delay(SAFE_DELAY, function() hittingCooldown = false end)
 end
 
 local function getClosestPlayer()
-    local bestPlayer = nil
-    local bestScore  = math.huge
-
+    local closestPlayer = nil
+    local closestDist = math.huge
     for _, plr in pairs(Players:GetPlayers()) do
-        if plr ~= LocalPlayer and plr.Character then
-            local targetHRP = plr.Character:FindFirstChild("HumanoidRootPart")
-            local targetHum = plr.Character:FindFirstChildOfClass("Humanoid")
-            if targetHRP and targetHum and targetHum.Health > 0 then
-                local dist = (hrp.Position - targetHRP.Position).Magnitude
-                -- Prefer line-of-sight targets (lower score = better)
-                local losPenalty = hasLineOfSight(hrp.Position, targetHRP.Position) and 0 or 20
-                local score = dist + losPenalty
-                if score < bestScore then
-                    bestScore = score
-                    bestPlayer = plr
-                end
+        if plr ~= LocalPlayer and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
+            local targetHRP = plr.Character.HumanoidRootPart
+            local dist = (hrp.Position - targetHRP.Position).Magnitude
+            if dist < closestDist then
+                closestDist = dist
+                closestPlayer = plr
             end
         end
     end
-    -- Sticky lock: keep same target unless someone is significantly closer
-    if lockedTarget and lockedTarget.Character then
-        local lockedHRP = lockedTarget.Character:FindFirstChild("HumanoidRootPart")
-        local lockedHum = lockedTarget.Character:FindFirstChildOfClass("Humanoid")
-        if lockedHRP and lockedHum and lockedHum.Health > 0 then
-            local lockedDist = (hrp.Position - lockedHRP.Position).Magnitude
-            local bestDist = bestPlayer and (hrp.Position - bestPlayer.Character.HumanoidRootPart.Position).Magnitude or math.huge
-            -- Only switch if new target is 8+ studs closer
-            if bestDist < lockedDist - 8 then
-                lockedTarget = bestPlayer
-            end
-        else
-            lockedTarget = bestPlayer
-        end
-    else
-        lockedTarget = bestPlayer
-    end
-
-    if lockedTarget and lockedTarget.Character then
-        local lHRP = lockedTarget.Character:FindFirstChild("HumanoidRootPart")
-        if lHRP then
-            return lockedTarget, (hrp.Position - lHRP.Position).Magnitude
-        end
-    end
-    return bestPlayer, bestScore
+    return closestPlayer, closestDist
 end
 
 local function flyToFrontOfTarget(targetHRP)
     if not hrp then return end
-
-    local dist = (hrp.Position - targetHRP.Position).Magnitude
-    local predicted = getPredictedPosition(targetHRP, dist)
-    local forward   = targetHRP.CFrame.LookVector
-    local frontPos  = predicted + forward * 1.5
+    local forward  = targetHRP.CFrame.LookVector
+    local frontPos = targetHRP.Position + forward * 1.5
     local direction = (frontPos - hrp.Position)
-    local dirMag    = direction.Magnitude
+    local dist = direction.Magnitude
 
-    -- Speed: full speed far away, brake when close
-    local rawSpeed
-    if dist <= BRAKE_RANGE then
-        rawSpeed = FLY_BASE_SPEED * (dist / BRAKE_RANGE)
-        rawSpeed = math.max(rawSpeed, 10)
-    else
-        rawSpeed = FLY_BASE_SPEED + (math.random() * 6 - 3)
+    -- Full 3D direction including vertical so we tilt toward enemy if below/above
+    local unit = dist > 0.1 and direction.Unit or Vector3.new(0,0,0)
+
+    -- Face enemy: smoothly rotate HRP toward target using Lerp (no reset)
+    local toTarget = (targetHRP.Position - hrp.Position)
+    local flatDist = Vector3.new(toTarget.X, 0, toTarget.Z).Magnitude
+
+    if flatDist > 0.1 then
+        -- Build a CFrame that tilts the character toward the enemy vertically
+        local yAngle   = math.atan2(-toTarget.X, -toTarget.Z)
+        local xAngle   = math.atan2(toTarget.Y, flatDist)
+        -- Clamp vertical tilt so character doesn't flip upside down
+        xAngle = math.clamp(xAngle, math.rad(-60), math.rad(60))
+        local targetCF = CFrame.new(hrp.Position)
+            * CFrame.Angles(0, yAngle, 0)
+            * CFrame.Angles(xAngle, 0, 0)
+        hrp.CFrame = hrp.CFrame:Lerp(targetCF, 0.3)
     end
 
-    local unit = dirMag > 0.1 and direction.Unit or Vector3.new(0, 0, 0)
-
-    -- Smooth velocity
-    currentVelX = currentVelX + (unit.X * rawSpeed - currentVelX) * ACCEL
-    currentVelZ = currentVelZ + (unit.Z * rawSpeed - currentVelZ) * ACCEL
-
-    hrp.AssemblyLinearVelocity = Vector3.new(currentVelX, unit.Y * rawSpeed, currentVelZ)
-
-    -- Face target using AutoRotate + MoveDirection instead of setting CFrame
-    -- This avoids triggering character reset
-    local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
-    if hum then
-        local toTarget = (targetHRP.Position - hrp.Position)
-        local flatDir  = Vector3.new(toTarget.X, 0, toTarget.Z)
-        if flatDir.Magnitude > 0.1 then
-            hum.AutoRotate = false
-            local targetCF = CFrame.new(hrp.Position, hrp.Position + flatDir)
-            hrp.CFrame = hrp.CFrame:Lerp(targetCF, 0.25)
-        end
-    end
-end
-
-local function isFacingTarget(targetHRP)
-    if not hrp then return false end
-    local toTarget = (targetHRP.Position - hrp.Position).Unit
-    local myLook   = hrp.CFrame.LookVector
-    return toTarget:Dot(myLook) >= ANGLE_THRESHOLD
+    -- 100 studs/s velocity toward front of target
+    hrp.AssemblyLinearVelocity = Vector3.new(unit.X * 100, unit.Y * 100, unit.Z * 100)
 end
 
 -- Settings Functions
@@ -3015,27 +2926,18 @@ end)
 
 RunService.Heartbeat:Connect(function()
     if autoBatToggled and h and hrp then
+        local char = LocalPlayer.Character
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+        if hum then hum.AutoRotate = false end
         local target, dist = getClosestPlayer()
-        if target and target.Character then
-            local targetHRP = target.Character:FindFirstChild("HumanoidRootPart")
-            if targetHRP then
-                flyToFrontOfTarget(targetHRP)
-                -- Only swing when close AND actually facing the target
-                if dist <= HIT_RANGE and isFacingTarget(targetHRP) then
-                    tryHitBat()
-                end
-            end
-        else
-            -- No target â€” bleed off velocity smoothly
-            currentVelX = currentVelX * 0.7
-            currentVelZ = currentVelZ * 0.7
-            lockedTarget = nil
+        if target and target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
+            flyToFrontOfTarget(target.Character.HumanoidRootPart)
+            if dist <= 7 then tryHitBat() end
         end
     else
-        currentVelX = 0
-        currentVelZ = 0
-        -- Restore AutoRotate when bat is off
-        local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+        -- Restore normal movement when bat is off
+        local char = LocalPlayer.Character
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
         if hum then hum.AutoRotate = true end
     end
 end)
