@@ -233,16 +233,52 @@ local function lustBuildCallbacks(prompt)
     lustStealCache[prompt] = data
 end
 
--- Get nearest animal within STEAL_RADIUS using cached positions
+-- Refresh world positions for all cached animals
+local function lustRefreshPositions()
+    for _, animal in ipairs(lustAnimalCache) do
+        local plots = workspace:FindFirstChild("Plots")
+        local plot = plots and plots:FindFirstChild(animal.plot)
+        local podiums = plot and plot:FindFirstChild("AnimalPodiums")
+        local podium = podiums and podiums:FindFirstChild(animal.slot)
+        local base = podium and podium:FindFirstChild("Base")
+        if base then
+            animal.worldPosition = base.Position
+        end
+    end
+end
+
+-- Get ALL animals within STEAL_RADIUS sorted by distance
+local function lustGetAllNearby()
+    local hrpRef = getHRP()
+    if not hrpRef then return {} end
+    local results = {}
+    for _, animal in ipairs(lustAnimalCache) do
+        local d = (hrpRef.Position - animal.worldPosition).Magnitude
+        if d <= Values.STEAL_RADIUS then
+            table.insert(results, { animal = animal, dist = d })
+        end
+    end
+    table.sort(results, function(a, b) return a.dist < b.dist end)
+    return results
+end
+
+-- Get nearest ready animal
 local function lustGetNearest()
-    local hrp = getHRP()
-    if not hrp then return nil end
+    local hrpRef = getHRP()
+    if not hrpRef then return nil end
     local nearest, bestDist = nil, math.huge
     for _, animal in ipairs(lustAnimalCache) do
-        local d = (hrp.Position - animal.worldPosition).Magnitude
+        local d = (hrpRef.Position - animal.worldPosition).Magnitude
         if d < bestDist and d <= Values.STEAL_RADIUS then
-            bestDist = d
-            nearest = animal
+            -- Check if prompt is ready
+            local prompt = lustFindPrompt(animal)
+            if prompt then
+                local data = lustStealCache[prompt]
+                if not data or data.ready then
+                    bestDist = d
+                    nearest = animal
+                end
+            end
         end
     end
     return nearest
@@ -269,33 +305,42 @@ local function executeSteal(prompt, name)
     end)
 
     task.spawn(function()
-        for _, fn in ipairs(data.holdCallbacks) do task.spawn(fn) end
-        for _, fn in ipairs(data.triggerCallbacks) do task.spawn(fn) end
+        -- Fire all callbacks immediately â€” no delay
+        for _, fn in ipairs(data.holdCallbacks) do pcall(fn) end
+        for _, fn in ipairs(data.triggerCallbacks) do pcall(fn) end
 
         task.wait(Values.STEAL_DURATION)
         if progressConnection then progressConnection:Disconnect() end
         ResetProgressBar()
         data.ready = true
         isStealing = false
+
+        -- Immediately refresh positions and try next animal in queue
+        if Enabled.AutoSteal then
+            lustRefreshPositions()
+        end
     end)
 end
 
--- Auto steal loop: 1/60 tick, double-check uid before firing (Lust recheck)
+-- Auto steal loop: instant fire, no recheck delay, skips non-ready prompts
 local function startAutoSteal()
     if Connections.autoSteal then return end
     Connections.autoSteal = RunService.Heartbeat:Connect(function()
         if not Enabled.AutoSteal or isStealing then return end
-        local animal = lustGetNearest()
-        if not animal then return end
-        task.spawn(function()
-            task.wait(0.1)
-            if not Enabled.AutoSteal or isStealing then return end
-            local recheck = lustGetNearest()
-            if recheck and recheck.uid == animal.uid then
-                local prompt = lustFindPrompt(recheck)
-                if prompt then executeSteal(prompt, recheck.slot) end
+        -- Refresh positions every cycle for accuracy
+        lustRefreshPositions()
+        local nearby = lustGetAllNearby()
+        -- Try each animal in order until one succeeds
+        for _, entry in ipairs(nearby) do
+            local prompt = lustFindPrompt(entry.animal)
+            if prompt then
+                local data = lustStealCache[prompt]
+                if not data or data.ready then
+                    executeSteal(prompt, entry.animal.slot)
+                    break
+                end
             end
-        end)
+        end
     end)
 end
 
@@ -852,12 +897,25 @@ end
 
 local function flyToFrontOfTarget(targetHRP)
     if not hrp then return end
+    local char = LocalPlayer.Character
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    if not hum then return end
+
     local forward  = targetHRP.CFrame.LookVector
     local frontPos = targetHRP.Position + forward * 1.5
-    local direction = (frontPos - hrp.Position)
-    local dist = direction.Magnitude
-    local unit = dist > 0.1 and direction.Unit or Vector3.new(0, 0, 0)
-    -- Use velocity only - no CFrame changes to avoid character reset
+    local toFront  = frontPos - hrp.Position
+    local dist     = toFront.Magnitude
+    local unit     = dist > 0.1 and toFront.Unit or Vector3.new(0, 0, 0)
+
+    -- Face target naturally using Humanoid:Move (no CFrame = no reset)
+    -- This rotates the character toward the enemy including vertical angle
+    local toTarget  = targetHRP.Position - hrp.Position
+    local flatDir   = Vector3.new(toTarget.X, 0, toTarget.Z)
+    if flatDir.Magnitude > 0.1 then
+        hum:Move(flatDir.Unit, false)
+    end
+
+    -- Full 3D velocity toward front of target (handles below/above angles)
     hrp.AssemblyLinearVelocity = Vector3.new(unit.X * 60, unit.Y * 60, unit.Z * 60)
 end
 
