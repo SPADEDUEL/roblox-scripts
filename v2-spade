@@ -284,14 +284,32 @@ local function lustGetNearest()
     return nearest
 end
 
--- Instant steal: fire hold callbacks then trigger callbacks immediately
+-- Fire a proximity prompt using all available methods
+local function firePrompt(prompt)
+    -- Method 1: executor fireproximityprompt
+    pcall(function()
+        if fireproximityprompt then fireproximityprompt(prompt) end
+    end)
+    -- Method 2: getconnections callbacks
+    pcall(function()
+        if getconnections then
+            for _, c in ipairs(getconnections(prompt.PromptButtonHoldBegan)) do
+                if c.Function then pcall(c.Function) end
+            end
+            for _, c in ipairs(getconnections(prompt.Triggered)) do
+                if c.Function then pcall(c.Function) end
+            end
+        end
+    end)
+    -- Method 3: direct remote fire
+    pcall(function()
+        local re = prompt:FindFirstChildOfClass("RemoteEvent")
+        if re then re:FireServer(prompt) end
+    end)
+end
+
 local function executeSteal(prompt, name)
     if isStealing then return end
-    lustBuildCallbacks(prompt)
-    local data = lustStealCache[prompt]
-    if not data or not data.ready then return end
-
-    data.ready = false
     isStealing = true
     stealStartTime = tick()
 
@@ -305,40 +323,27 @@ local function executeSteal(prompt, name)
     end)
 
     task.spawn(function()
-        -- Fire all callbacks immediately â€” no delay
-        for _, fn in ipairs(data.holdCallbacks) do pcall(fn) end
-        for _, fn in ipairs(data.triggerCallbacks) do pcall(fn) end
-
+        firePrompt(prompt)
         task.wait(Values.STEAL_DURATION)
         if progressConnection then progressConnection:Disconnect() end
         ResetProgressBar()
-        data.ready = true
         isStealing = false
-
-        -- Immediately refresh positions and try next animal in queue
-        if Enabled.AutoSteal then
-            lustRefreshPositions()
-        end
+        lustRefreshPositions()
     end)
 end
 
--- Auto steal loop: instant fire, no recheck delay, skips non-ready prompts
+-- Auto steal loop: tries all nearby animals in distance order
 local function startAutoSteal()
     if Connections.autoSteal then return end
     Connections.autoSteal = RunService.Heartbeat:Connect(function()
         if not Enabled.AutoSteal or isStealing then return end
-        -- Refresh positions every cycle for accuracy
         lustRefreshPositions()
         local nearby = lustGetAllNearby()
-        -- Try each animal in order until one succeeds
         for _, entry in ipairs(nearby) do
             local prompt = lustFindPrompt(entry.animal)
             if prompt then
-                local data = lustStealCache[prompt]
-                if not data or data.ready then
-                    executeSteal(prompt, entry.animal.slot)
-                    break
-                end
+                executeSteal(prompt, entry.animal.slot)
+                break
             end
         end
     end)
@@ -976,6 +981,16 @@ local function saveConfig()
         autoRightEnabled = Enabled.AutoRightEnabled,
         floatEnabled = floatEnabled,
         floatHeight = floatHeight,
+        buttonPositions = (function()
+            local pos = {}
+            for name, mb in pairs(MobileButtons) do
+                if mb and mb.btn then
+                    local p = mb.btn.Position
+                    pos[name] = {x = p.X.Offset, y = p.Y.Offset}
+                end
+            end
+            return pos
+        end)(),
     }
     
     local ok = false
@@ -1031,6 +1046,18 @@ local function loadConfig()
     if cfg.autoRightEnabled ~= nil then Enabled.AutoRightEnabled = cfg.autoRightEnabled end
     if cfg.floatEnabled ~= nil then floatEnabled = cfg.floatEnabled end
     if cfg.floatHeight then floatHeight = cfg.floatHeight end
+    -- Restore button positions after GUI is built
+    if cfg.buttonPositions then
+        task.defer(function()
+            task.wait(0.5)  -- wait for buttons to be created
+            for name, pos in pairs(cfg.buttonPositions) do
+                local mb = MobileButtons[name]
+                if mb and mb.btn then
+                    mb.btn.Position = UDim2.new(0, pos.x, 0, pos.y)
+                end
+            end
+        end)
+    end
 end
 
 loadConfig()
