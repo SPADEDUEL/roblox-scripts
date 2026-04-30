@@ -233,36 +233,7 @@ local function lustBuildCallbacks(prompt)
     lustStealCache[prompt] = data
 end
 
--- Refresh world positions for all cached animals
-local function lustRefreshPositions()
-    for _, animal in ipairs(lustAnimalCache) do
-        local plots = workspace:FindFirstChild("Plots")
-        local plot = plots and plots:FindFirstChild(animal.plot)
-        local podiums = plot and plot:FindFirstChild("AnimalPodiums")
-        local podium = podiums and podiums:FindFirstChild(animal.slot)
-        local base = podium and podium:FindFirstChild("Base")
-        if base then
-            animal.worldPosition = base.Position
-        end
-    end
-end
-
--- Get ALL animals within STEAL_RADIUS sorted by distance
-local function lustGetAllNearby()
-    local hrpRef = getHRP()
-    if not hrpRef then return {} end
-    local results = {}
-    for _, animal in ipairs(lustAnimalCache) do
-        local d = (hrpRef.Position - animal.worldPosition).Magnitude
-        if d <= Values.STEAL_RADIUS then
-            table.insert(results, { animal = animal, dist = d })
-        end
-    end
-    table.sort(results, function(a, b) return a.dist < b.dist end)
-    return results
-end
-
--- Get nearest ready animal
+-- Get nearest animal within STEAL_RADIUS
 local function lustGetNearest()
     local hrpRef = getHRP()
     if not hrpRef then return nil end
@@ -270,50 +241,38 @@ local function lustGetNearest()
     for _, animal in ipairs(lustAnimalCache) do
         local d = (hrpRef.Position - animal.worldPosition).Magnitude
         if d < bestDist and d <= Values.STEAL_RADIUS then
-            -- Check if prompt is ready
-            local prompt = lustFindPrompt(animal)
-            if prompt then
-                local data = lustStealCache[prompt]
-                if not data or data.ready then
-                    bestDist = d
-                    nearest = animal
-                end
-            end
+            bestDist = d
+            nearest = animal
         end
     end
     return nearest
 end
 
--- Fire a proximity prompt using all available methods
-local function firePrompt(prompt)
-    -- Method 1: executor fireproximityprompt
-    pcall(function()
-        if fireproximityprompt then fireproximityprompt(prompt) end
-    end)
-    -- Method 2: getconnections callbacks
+local function lustBuildCallbacks(prompt)
+    if lustStealCache[prompt] then return end
+    local data = {holdCallbacks = {}, triggerCallbacks = {}, ready = true}
     pcall(function()
         if getconnections then
             for _, c in ipairs(getconnections(prompt.PromptButtonHoldBegan)) do
-                if c.Function then pcall(c.Function) end
+                if c.Function then table.insert(data.holdCallbacks, c.Function) end
             end
             for _, c in ipairs(getconnections(prompt.Triggered)) do
-                if c.Function then pcall(c.Function) end
+                if c.Function then table.insert(data.triggerCallbacks, c.Function) end
             end
         end
     end)
-    -- Method 3: direct remote fire
-    pcall(function()
-        local re = prompt:FindFirstChildOfClass("RemoteEvent")
-        if re then re:FireServer(prompt) end
-    end)
+    lustStealCache[prompt] = data
 end
 
-local function executeSteal(prompt, name)
+local function executeSteal(prompt, slot)
     if isStealing then return end
+    lustBuildCallbacks(prompt)
+    local data = lustStealCache[prompt]
+    if not data or not data.ready then return end
+    data.ready = false
     isStealing = true
     stealStartTime = tick()
-
-    if ProgressLabel then ProgressLabel.Text = name or "STEALING..." end
+    if ProgressLabel then ProgressLabel.Text = slot or "STEALING..." end
     if progressConnection then progressConnection:Disconnect() end
     progressConnection = RunService.Heartbeat:Connect(function()
         if not isStealing then progressConnection:Disconnect() return end
@@ -321,31 +280,32 @@ local function executeSteal(prompt, name)
         if ProgressBarFill then ProgressBarFill.Size = UDim2.new(prog, 0, 1, 0) end
         if ProgressPercentLabel then ProgressPercentLabel.Text = math.floor(prog * 100) .. "%" end
     end)
-
     task.spawn(function()
-        firePrompt(prompt)
+        for _, fn in ipairs(data.holdCallbacks) do task.spawn(fn) end
+        for _, fn in ipairs(data.triggerCallbacks) do task.spawn(fn) end
         task.wait(Values.STEAL_DURATION)
         if progressConnection then progressConnection:Disconnect() end
         ResetProgressBar()
+        data.ready = true
         isStealing = false
-        lustRefreshPositions()
     end)
 end
 
--- Auto steal loop: tries all nearby animals in distance order
 local function startAutoSteal()
     if Connections.autoSteal then return end
     Connections.autoSteal = RunService.Heartbeat:Connect(function()
         if not Enabled.AutoSteal or isStealing then return end
-        lustRefreshPositions()
-        local nearby = lustGetAllNearby()
-        for _, entry in ipairs(nearby) do
-            local prompt = lustFindPrompt(entry.animal)
-            if prompt then
-                executeSteal(prompt, entry.animal.slot)
-                break
+        local animal = lustGetNearest()
+        if not animal then return end
+        task.spawn(function()
+            task.wait(0.1)
+            if not Enabled.AutoSteal or isStealing then return end
+            local recheck = lustGetNearest()
+            if recheck and recheck.uid == animal.uid then
+                local prompt = lustFindPrompt(recheck)
+                if prompt then executeSteal(prompt, recheck.slot) end
             end
-        end
+        end)
     end)
 end
 
@@ -981,16 +941,7 @@ local function saveConfig()
         autoRightEnabled = Enabled.AutoRightEnabled,
         floatEnabled = floatEnabled,
         floatHeight = floatHeight,
-        buttonPositions = (function()
-            local pos = {}
-            for name, mb in pairs(MobileButtons) do
-                if mb and mb.btn then
-                    local p = mb.btn.Position
-                    pos[name] = {x = p.X.Offset, y = p.Y.Offset}
-                end
-            end
-            return pos
-        end)(),
+
     }
     
     local ok = false
@@ -1046,18 +997,7 @@ local function loadConfig()
     if cfg.autoRightEnabled ~= nil then Enabled.AutoRightEnabled = cfg.autoRightEnabled end
     if cfg.floatEnabled ~= nil then floatEnabled = cfg.floatEnabled end
     if cfg.floatHeight then floatHeight = cfg.floatHeight end
-    -- Restore button positions after GUI is built
-    if cfg.buttonPositions then
-        task.defer(function()
-            task.wait(0.5)  -- wait for buttons to be created
-            for name, pos in pairs(cfg.buttonPositions) do
-                local mb = MobileButtons[name]
-                if mb and mb.btn then
-                    mb.btn.Position = UDim2.new(0, pos.x, 0, pos.y)
-                end
-            end
-        end)
-    end
+
 end
 
 loadConfig()
@@ -2780,20 +2720,24 @@ saveConfigBtn.LayoutOrder = O()
 saveConfigBtn.ZIndex = 4
 saveConfigBtn.Parent = vstack
 
-saveConfigBtn.MouseButton1Click:Connect(function()
+local saveLast = 0
+local function doSave()
+    local now = tick()
+    if now - saveLast < 0.5 then return end
+    saveLast = now
     saveConfig()
+end
+saveConfigBtn.MouseButton1Click:Connect(doSave)
+saveConfigBtn.InputBegan:Connect(function(inp)
+    if inp.UserInputType == Enum.UserInputType.Touch then
+        doSave()
+    end
 end)
 saveConfigBtn.MouseEnter:Connect(function()
     TweenService:Create(saveConfigBtn, TweenInfo.new(0.1), {TextColor3 = C_PURPLE}):Play()
 end)
 saveConfigBtn.MouseLeave:Connect(function()
     TweenService:Create(saveConfigBtn, TweenInfo.new(0.1), {TextColor3 = C_DIM}):Play()
-end)
-
-saveConfigBtn.InputBegan:Connect(function(inp)
-    if inp.UserInputType == Enum.UserInputType.Touch then
-        saveConfig()
-    end
 end)
 
 -- Progress Bar
