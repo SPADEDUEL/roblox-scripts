@@ -59,6 +59,40 @@ local patrolMode      = "none"
 local currentWaypoint = 1
 local patrolConn      = nil
 
+-- Core tables used throughout
+local Values = {
+    STEAL_RADIUS   = 20,
+    STEAL_DURATION = 0.2,
+}
+local Connections = {}
+local Enabled = {
+    AutoSteal    = false,
+    AntiRagdoll  = false,
+    InfiniteJump = false,
+    Unwalk       = false,
+    AutoSteal    = false,
+}
+
+-- Progress bar references (set later when GUI is built)
+local ProgressLabel, ProgressPercentLabel, ProgressBarFill
+
+local function ResetProgressBar()
+    if ProgressBarFill     then ProgressBarFill.Size = UDim2.new(0, 0, 1, 0) end
+    if ProgressPercentLabel then ProgressPercentLabel.Text = "0%" end
+    if ProgressLabel       then ProgressLabel.Text = "" end
+end
+
+-- SlapList for aimbot bat search
+local SlapListAim = {
+    "Bat","Slap","Iron Slap","Gold Slap","Diamond Slap",
+    "Emerald Slap","Ruby Slap","Dark Matter Slap",
+    "Flame Slap","Nuclear Slap","Galaxy Slap","Glitched Slap"
+}
+
+-- isStealing state
+local isStealing    = false
+local stealStartTime = 0
+
 -- ============================================================
 -- AUTO GRAB (Or's Hub)
 -- ============================================================
