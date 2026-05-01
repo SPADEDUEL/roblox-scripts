@@ -23,6 +23,7 @@ local UI_SCALE = 1.0
 local speedToggled = false
 local autoBatToggled = false
 local hittingCooldown = false
+local aimEnabled = false
 local floatEnabled = false
 local floatHeight = 10
 
@@ -64,261 +65,1714 @@ local isStealing = false
 local stealStartTime = nil
 local StealData = {}
 -- Lust caches
-local lustAnimalCache = {}
-local lustMemoryCache = {}
-local lustStealCache = {}
-
--- Values
-local Values = {
-    STEAL_RADIUS = 20,
-    STEAL_DURATION = 0.2,
-    DEFAULT_GRAVITY = 196.2,
-    GalaxyGravityPercent = 70,
-    HOP_POWER = 35,
-    HOP_COOLDOWN = 0.08,
-}
-
--- Feature States
-local Enabled = {
-    AntiRagdoll = false,
-    AutoSteal = false,
-    InfiniteJump = false,
-    ShinyGraphics = false,
-    Optimizer = false,
-    Unwalk = false,
-    AutoLeftEnabled = false,
-    AutoRightEnabled = false,
-}
-
--- Connections
-local Connections = {}
-local galaxyVectorForce = nil
-local galaxyAttachment = nil
-local galaxyEnabled = false
-local hopsEnabled = false
-local lastHopTime = 0
-local spaceHeld = false
-local originalJumpPower = 50
-local originalTransparency = {}
-local savedAnimations = {}
-local originalSkybox = nil
-local shinyGraphicsSky = nil
-local shinyGraphicsConn = nil
-local shinyPlanets = {}
-local shinyBloom = nil
-local shinyCC = nil
-
--- Float Variables
-local floatConn = nil
-local floatAttachment = nil
-local floatForce = nil
-local floatVisualSetter = nil
-local cachedMass = 0
-local lastMassUpdate = 0
-
--- GUI Variables
-local h, hrp, speedLbl
-local progressConnection = nil
-local gui = nil
-local main = nil
-local speedSwBg, speedSwCircle = nil, nil
-local batSwBg, batSwCircle = nil, nil
-local waitingForKey = nil
-local _G_AL_swBg, _G_AL_swCircle = nil, nil
-local _G_AR_swBg, _G_AR_swCircle = nil, nil
-local setAutoLeft = nil   -- assigned when makeRow runs for Auto Left
-local setAutoRight = nil  -- assigned when makeRow runs for Auto Right
-
--- UI References
-local ProgressLabel, ProgressPercentLabel, ProgressBarFill, RadiusInput, DurationInput
-local saveConfigBtn
-
--- Colors (Red & White theme)
-local C_BG     = Color3.fromRGB(15,  15,  15)   -- near black background
-local C_PURPLE = Color3.fromRGB(210,  20,  20)   -- main red
-local C_PURPLE2= Color3.fromRGB(240,  60,  60)   -- lighter red
-local C_DIM    = Color3.fromRGB(180,  30,  30)   -- dim red
-local C_SW_OFF = Color3.fromRGB(60,   60,  60)   -- dark grey switch off
-local C_WHITE  = Color3.fromRGB(255, 255, 255)   -- white text
-local C_ROW_BG = Color3.fromRGB(28,  10,  10)    -- dark red-tinted rows
-
--- Utility Functions
-local function getHRP()
-    local char = LocalPlayer.Character
-    if not char then return nil end
-    return char:FindFirstChild("HumanoidRootPart")
-end
-
-local function isMyPlotByName(pn)
-    local plots = workspace:FindFirstChild("Plots")
-    if not plots then return false end
-    local plot = plots:FindFirstChild(pn)
+-- ============================================================
+-- AUTO GRAB (Or's Hub system)
+-- ============================================================
+local function isMyPlot(plotName)
+    local plot = workspace.Plots and workspace.Plots:FindFirstChild(plotName)
     if not plot then return false end
-    local sign = plot:FindFirstChild("PlotSign")
-    if sign then
-        local yb = sign:FindFirstChild("YourBase")
-        if yb and yb:IsA("BillboardGui") then return yb.Enabled end
-    end
-    return false
+    local sign = plot:FindFirstChild("PlotSign"); if not sign then return false end
+    local yb = sign:FindFirstChild("YourBase")
+    return yb and yb:IsA("BillboardGui") and yb.Enabled == true
 end
 
-local function ResetProgressBar()
-    if ProgressLabel then ProgressLabel.Text = "READY" end
-    if ProgressPercentLabel then ProgressPercentLabel.Text = "" end
-    if ProgressBarFill then ProgressBarFill.Size = UDim2.new(0, 0, 1, 0) end
-end
-
--- LUST INSTA-GRAB LOGIC -------------------------------------------------------
-
--- Scan a single plot into lustAnimalCache
-local function lustScanPlot(plot)
+local function scanPlot(plot)
     if not plot or not plot:IsA("Model") then return end
-    if isMyPlotByName(plot.Name) then return end
-    local podiums = plot:FindFirstChild("AnimalPodiums")
-    if not podiums then return end
-    for _, podium in ipairs(podiums:GetChildren()) do
-        if podium:IsA("Model") and podium:FindFirstChild("Base") then
-            table.insert(lustAnimalCache, {
-                plot = plot.Name,
-                slot = podium.Name,
-                worldPosition = podium:GetPivot().Position,
-                uid = plot.Name .. "_" .. podium.Name
+    if isMyPlot(plot.Name) then return end
+    local podiums = plot:FindFirstChild("AnimalPodiums"); if not podiums then return end
+    for _, pod in ipairs(podiums:GetChildren()) do
+        if pod:IsA("Model") and pod:FindFirstChild("Base") then
+            local uid = plot.Name .. "_" .. pod.Name
+            for _, ex in ipairs(animalCache) do if ex.uid == uid then return end end
+            table.insert(animalCache, {
+                name = pod.Name, plot = plot.Name, slot = pod.Name,
+                worldPosition = pod:GetPivot().Position,
+                uid = uid,
             })
         end
     end
 end
 
--- Initialize scanner Ã¢â‚¬â€ called once after game loads
-local function lustInitScanner()
-    task.wait(2)
-    local plots = workspace:WaitForChild("Plots", 10)
-    if not plots then return end
-    for _, plot in ipairs(plots:GetChildren()) do lustScanPlot(plot) end
-    plots.ChildAdded:Connect(lustScanPlot)
+local function findPromptCached(ad)
+    if not ad then return nil end
+    local cp = promptCache[ad.uid]
+    if cp and cp.Parent then return cp end
+    local plots = workspace:FindFirstChild("Plots"); if not plots then return nil end
+    local plot  = plots:FindFirstChild(ad.plot);    if not plot  then return nil end
+    local pods  = plot:FindFirstChild("AnimalPodiums"); if not pods then return nil end
+    local pod   = pods:FindFirstChild(ad.slot);     if not pod   then return nil end
+    local base  = pod:FindFirstChild("Base");        if not base  then return nil end
+    local sp    = base:FindFirstChild("Spawn");      if not sp    then return nil end
+    local function searchPrompt(obj)
+        for _, ch in ipairs(obj:GetDescendants()) do
+            if ch:IsA("ProximityPrompt") then return ch end
+        end
+    end
+    local att = sp:FindFirstChild("PromptAttachment")
+    local prompt = nil
+    if att then
+        for _, p in ipairs(att:GetChildren()) do
+            if p:IsA("ProximityPrompt") then prompt = p; break end
+        end
+    end
+    if not prompt then prompt = searchPrompt(sp) end
+    if prompt then promptCache[ad.uid] = prompt end
+    return prompt
 end
 
--- Find cached prompt for an animal entry
-local function lustFindPrompt(animal)
-    local cached = lustMemoryCache[animal.uid]
-    if cached and cached.Parent then return cached end
+local function buildCallbacks(prompt)
+    if stealCache[prompt] then return end
+    local data = { holdCallbacks = {}, triggerCallbacks = {}, ready = true }
+    local ok1, c1 = pcall(getconnections, prompt.PromptButtonHoldBegan)
+    if ok1 and type(c1) == "table" then
+        for _, conn in ipairs(c1) do
+            if type(conn.Function) == "function" then
+                table.insert(data.holdCallbacks, conn.Function)
+            end
+        end
+    end
+    local ok2, c2 = pcall(getconnections, prompt.Triggered)
+    if ok2 and type(c2) == "table" then
+        for _, conn in ipairs(c2) do
+            if type(conn.Function) == "function" then
+                table.insert(data.triggerCallbacks, conn.Function)
+            end
+        end
+    end
+    if #data.holdCallbacks > 0 or #data.triggerCallbacks > 0 then
+        stealCache[prompt] = data
+    end
+end
+
+local function nearestAnimal()
+    local char = LocalPlayer.Character; if not char then return nil end
+    local hrp = char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("UpperTorso")
+    if not hrp then return nil end
+    local best, bestD = nil, math.huge
+    for _, ad in ipairs(animalCache) do
+        if not isMyPlot(ad.plot) and ad.worldPosition then
+            local d = (hrp.Position - ad.worldPosition).Magnitude
+            if d < bestD then bestD = d; best = ad end
+        end
+    end
+    return best, bestD
+end
+
+local function findNearestTarget()
+    local _, bestD = nearestAnimal()
+    if not bestD then return nil end
+    local char = LocalPlayer.Character; if not char then return nil end
+    local hrp = char:FindFirstChild("HumanoidRootPart"); if not hrp then return nil end
+    local best, bd = nil, math.huge
+    for _, ad in ipairs(animalCache) do
+        if not isMyPlot(ad.plot) and ad.worldPosition then
+            local d = (hrp.Position - ad.worldPosition).Magnitude
+            if d < bd then bd = d; best = ad end
+        end
+    end
+    if not best then return nil end
     local plots = workspace:FindFirstChild("Plots")
-    local plot = plots and plots:FindFirstChild(animal.plot)
-    local podiums = plot and plot:FindFirstChild("AnimalPodiums")
-    local podium = podiums and podiums:FindFirstChild(animal.slot)
-    local base = podium and podium:FindFirstChild("Base")
-    local spawnPart = base and base:FindFirstChild("Spawn")
-    local att = spawnPart and spawnPart:FindFirstChild("PromptAttachment")
-    if att then
-        local prompt = att:FindFirstChildOfClass("ProximityPrompt")
-        if prompt then lustMemoryCache[animal.uid] = prompt end
-        return prompt
+    if plots then
+        local plot = plots:FindFirstChild(best.plot)
+        local pods = plot and plot:FindFirstChild("AnimalPodiums")
+        local pod  = pods and pods:FindFirstChild(best.slot)
+        local base = pod and pod:FindFirstChild("Base")
+        local sp   = base and base:FindFirstChild("Spawn")
+        if sp and sp:IsA("BasePart") then return sp end
+    end
+    return { Position = best.worldPosition }
+end
+
+task.spawn(function()
+    task.wait(2)
+    local plots = workspace:WaitForChild("Plots", 10); if not plots then return end
+    for _, plot in ipairs(plots:GetChildren()) do
+        if plot:IsA("Model") then scanPlot(plot) end
+    end
+    plots.ChildAdded:Connect(function(plot)
+        if plot:IsA("Model") then task.wait(0.5); scanPlot(plot) end
+    end)
+    task.spawn(function()
+        while task.wait(5) do
+            animalCache = {}; promptCache = {}
+            for _, plot in ipairs(plots:GetChildren()) do
+                if plot:IsA("Model") then scanPlot(plot) end
+            end
+        end
+    end)
+end)
+
+local function ResetProgressBar()
+    if ProgressBarFill then ProgressBarFill.Size = UDim2.fromScale(0, 1) end
+    if ProgressPercentLabel then ProgressPercentLabel.Text = "0%" end
+end
+
+local function getPromptAnchorPart(prompt)
+    local p = prompt.Parent
+    if p then
+        if p:IsA("BasePart") then return p end
+        if p.Parent and p.Parent:IsA("BasePart") then return p.Parent end
+        local anc = p:FindFirstAncestorWhichIsA("BasePart")
+        if anc then return anc end
     end
     return nil
 end
 
--- Build and cache hold/trigger callbacks for a prompt
-local function lustBuildCallbacks(prompt)
-    if lustStealCache[prompt] then return end
-    local data = { holdCallbacks = {}, triggerCallbacks = {}, ready = true }
-    pcall(function()
-        if getconnections then
-            for _, c in ipairs(getconnections(prompt.PromptButtonHoldBegan)) do
-                if c.Function then table.insert(data.holdCallbacks, c.Function) end
-            end
-            for _, c in ipairs(getconnections(prompt.Triggered)) do
-                if c.Function then table.insert(data.triggerCallbacks, c.Function) end
-            end
-        end
-    end)
-    lustStealCache[prompt] = data
-end
+local duelModule = nil
 
--- Get nearest animal within STEAL_RADIUS
-local function lustGetNearest()
-    local hrpRef = getHRP()
-    if not hrpRef then return nil end
-    local nearest, bestDist = nil, math.huge
-    for _, animal in ipairs(lustAnimalCache) do
-        local d = (hrpRef.Position - animal.worldPosition).Magnitude
-        if d < bestDist and d <= Values.STEAL_RADIUS then
-            bestDist = d
-            nearest = animal
+local function createDuelHub()
+    if duelGui and duelGui.Parent then duelGui:Destroy() end
+
+    local dadosSalvosL = { ativo = false, posicaoHub = { X = 0.38188, Y = 0.31921 } }
+    local SpeedValueLeft = 52; local savedSpeedLeft = 52; local AutoL = false
+    local _pd = cfgGet("duelPositions") or {}
+    local P1      = Vector3.new(_pd.P1x   or -474.8211975097656,  _pd.P1y   or -6.992471694946289,  _pd.P1z   or 93.64490509033203)
+    local P2      = Vector3.new(_pd.P2x   or -479.4603271484375,  _pd.P2y   or -5.106024742126465,  _pd.P2z   or 93.8957290649414)
+    local P_EXTRA = Vector3.new(_pd.PEXx  or -484.7935791015625,  _pd.PEXy  or -4.877744197845459,  _pd.PEXz  or 96.35384368896485)
+    local dadosSalvosR = { ativo = false, posicaoHub = { X = 0.61812, Y = 0.31921 } }
+    local SpeedValueRight = 52; local savedSpeedRight = 52; local AutoR = false
+    local R1      = Vector3.new(_pd.R1x   or -474.8984375,        _pd.R1y   or -6.992471694946289,  _pd.R1z   or 26.0786075592041)
+    local R2      = Vector3.new(_pd.R2x   or -479.8058776855469,  _pd.R2y   or -5.0522565841674809, _pd.R2z   or 25.93069076538086)
+    local R_EXTRA = Vector3.new(_pd.REXx  or -484.89208984375,    _pd.REXy  or -4.877744197845459,  _pd.REXz  or 24.079252243041993)
+    local pEndDelay = _pd.pEndDelay or 0.028
+    local rEndDelay = _pd.rEndDelay or 0.028
+
+    local function salvarDadosL() cfgSet("leftHubConfig", dadosSalvosL) end
+    local function carregarDadosL()
+        local d = cfgGet("leftHubConfig")
+        if d then dadosSalvosL = d end
+        AutoL = false; dadosSalvosL.ativo = false
+    end
+    local function salvarDadosR() cfgSet("rightHubConfig", dadosSalvosR) end
+    local function carregarDadosR()
+        local d = cfgGet("rightHubConfig")
+        if d then dadosSalvosR = d end
+        AutoR = false; dadosSalvosR.ativo = false
+    end
+    carregarDadosL(); carregarDadosR()
+
+    duelGui = Instance.new("ScreenGui", lp:WaitForChild("PlayerGui"))
+    duelGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    duelGui.ResetOnSpawn = false
+    duelGui.Name = "HubCombinadoGui"
+    duelGui.Enabled = false
+
+    local dadosSalvosAuto = { px = -1, py = -1, keybind = nil }
+    do
+        local d = cfgGet("autoPlayConfig") or {px=577, py=-8}
+        dadosSalvosAuto = d
+    end
+    local function salvarDadosAuto()
+        cfgSet("autoPlayConfig", dadosSalvosAuto)
+    end
+
+    local AutoPlayAtivo = false
+    local autoPlayWasActive = false
+    local ladoEscolhido = nil
+
+    local fAuto = Instance.new("Frame", duelGui)
+    fAuto.Name = "AutoPlayFrame"
+    fAuto.BorderSizePixel = 0
+    fAuto.BackgroundColor3 = Color3.fromRGB(35, 8, 8)
+    fAuto.Size = UDim2.new(0, 128, 0, 34)
+    fAuto.Active = true
+    fAuto.ZIndex = 10
+    fAuto.ClipsDescendants = true
+
+    if dadosSalvosAuto.px and dadosSalvosAuto.px >= 0 then
+        fAuto.Position = UDim2.new(0, dadosSalvosAuto.px, 0, dadosSalvosAuto.py)
+    else
+        fAuto.Position = UDim2.new(0.5, -63, 0.32, 0)
+    end
+
+    Instance.new("UICorner", fAuto).CornerRadius = UDim.new(0, 10)
+    applyHubGradient(fAuto)
+
+    local autoStroke = Instance.new("UIStroke", fAuto)
+    autoStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+    autoStroke.Thickness = 2
+    autoStroke.Color = STROKE_IDLE
+
+    local lblAuto = Instance.new("TextLabel", fAuto)
+    lblAuto.BackgroundTransparency = 1
+    lblAuto.Size = UDim2.new(0,14,0,14)
+    lblAuto.Position = UDim2.new(0,3,0,10)
+    lblAuto.Text = "â—‰"; lblAuto.ZIndex = 12
+    lblAuto.TextColor3 = DOT_OFF
+    lblAuto.Font = Enum.Font.GothamBold
+    lblAuto.TextSize = 13
+
+    local btnAuto = Instance.new("TextButton", fAuto)
+    btnAuto.BackgroundTransparency = 1
+    btnAuto.BorderSizePixel = 0
+    btnAuto.Font = Enum.Font.Bangers
+    btnAuto.TextSize = 17
+    btnAuto.Size = UDim2.new(1,-28,0,32)
+    btnAuto.Position = UDim2.new(0,5,0,1)
+    btnAuto.Text = "AUTO PLAY"
+    btnAuto.TextXAlignment = Enum.TextXAlignment.Center
+    btnAuto.AutoButtonColor = false
+    btnAuto.ZIndex = 12
+
+    local btnGear = Instance.new("TextButton", fAuto)
+    btnGear.BackgroundTransparency = 1
+    btnGear.BorderSizePixel = 0
+    btnGear.Font = Enum.Font.GothamBold
+    btnGear.TextSize = 12
+    btnGear.TextColor3 = Color3.fromRGB(160,160,160)
+    btnGear.Size = UDim2.new(0,22,0,22)
+    btnGear.Position = UDim2.new(1,-24,0,6)
+    btnGear.Text = "âš™"
+    btnGear.AutoButtonColor = false
+    btnGear.ZIndex = 13
+
+    local function atualizarBtnAutoVisual()
+        if not ladoEscolhido then
+            btnAuto.TextColor3 = Color3.fromRGB(255,255,255)
+            autoStroke.Color = STROKE_IDLE
+            lblAuto.TextColor3 = DOT_OFF
+        elseif AutoPlayAtivo then
+            btnAuto.TextColor3 = Color3.fromRGB(255,255,255)
+            autoStroke.Color = STROKE_ACTIVE
+            lblAuto.TextColor3 = DOT_ON
+        else
+            btnAuto.TextColor3 = Color3.fromRGB(255,255,255)
+            autoStroke.Color = STROKE_IDLE
+            lblAuto.TextColor3 = DOT_OFF
         end
     end
-    return nearest
-end
+    atualizarBtnAutoVisual()
 
-local function lustBuildCallbacks(prompt)
-    if lustStealCache[prompt] then return end
-    local data = {holdCallbacks = {}, triggerCallbacks = {}, ready = true}
-    pcall(function()
-        if getconnections then
-            for _, c in ipairs(getconnections(prompt.PromptButtonHoldBegan)) do
-                if c.Function then table.insert(data.holdCallbacks, c.Function) end
+    local autoDivider = Instance.new("Frame", fAuto)
+    autoDivider.Size = UDim2.new(1, -12, 0, 1)
+    autoDivider.Position = UDim2.new(0, 6, 0, 34)
+    autoDivider.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+    autoDivider.BorderSizePixel = 0; autoDivider.ZIndex = 11
+
+    local lblTitulo = Instance.new("TextLabel", fAuto)
+    lblTitulo.BackgroundTransparency = 1
+    lblTitulo.TextColor3 = Color3.fromRGB(255,255,255)
+    lblTitulo.Size = UDim2.new(1,0,0,18)
+    lblTitulo.Position = UDim2.new(0,0,0,37)
+    lblTitulo.Text = "CHOOSE SIDE"
+    lblTitulo.Font = Enum.Font.GothamBold
+    lblTitulo.TextSize = 9
+    lblTitulo.ZIndex = 31
+
+    local btnPR = Instance.new("TextButton", fAuto)
+    btnPR.BackgroundTransparency = 1
+    btnPR.BorderSizePixel = 0
+    btnPR.Font = Enum.Font.Bangers
+    btnPR.TextSize = 15
+    btnPR.TextColor3 = Color3.fromRGB(255,255,255)
+    btnPR.Size = UDim2.new(0,52,0,24)
+    btnPR.Position = UDim2.new(0,8,0,56)
+    btnPR.Text = "RIGHT"
+    btnPR.AutoButtonColor = false
+    btnPR.ZIndex = 32
+    Instance.new("UICorner", btnPR).CornerRadius = UDim.new(0,7)
+    local sPR = Instance.new("UIStroke", btnPR)
+    sPR.Thickness = 1.5; sPR.Color = STROKE_ACTIVE
+    sPR.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+    sPR.Enabled = false
+
+    local btnPL = Instance.new("TextButton", fAuto)
+    btnPL.BackgroundTransparency = 1
+    btnPL.BorderSizePixel = 0
+    btnPL.Font = Enum.Font.Bangers
+    btnPL.TextSize = 15
+    btnPL.TextColor3 = Color3.fromRGB(255,255,255)
+    btnPL.Size = UDim2.new(0,52,0,24)
+    btnPL.Position = UDim2.new(0,66,0,56)
+    btnPL.Text = "LEFT"
+    btnPL.AutoButtonColor = false
+    btnPL.ZIndex = 32
+    Instance.new("UICorner", btnPL).CornerRadius = UDim.new(0,7)
+    local sPL = Instance.new("UIStroke", btnPL)
+    sPL.Thickness = 1.5; sPL.Color = STROKE_ACTIVE
+    sPL.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+    sPL.Enabled = false
+
+    local dotRow = Instance.new("Frame", fAuto)
+    dotRow.BackgroundTransparency = 1
+    dotRow.Size = UDim2.new(1,0,0,12)
+    dotRow.Position = UDim2.new(0,0,0,84)
+    dotRow.ZIndex = 31
+
+    local dotR = Instance.new("Frame", dotRow)
+    dotR.Size = UDim2.new(0,7,0,7)
+    dotR.Position = UDim2.new(0.5,-10,0.5,-3)
+    dotR.BackgroundColor3 = DOT_OFF
+    dotR.BorderSizePixel = 0; dotR.ZIndex = 32
+    Instance.new("UICorner", dotR).CornerRadius = UDim.new(1,0)
+
+    local dotL = Instance.new("Frame", dotRow)
+    dotL.Size = UDim2.new(0,7,0,7)
+    dotL.Position = UDim2.new(0.5,3,0.5,-3)
+    dotL.BackgroundColor3 = DOT_OFF
+    dotL.BorderSizePixel = 0; dotL.ZIndex = 32
+    Instance.new("UICorner", dotL).CornerRadius = UDim.new(1,0)
+
+    if dadosSalvosAuto.keybind then
+        local ok, kc = pcall(function() return Enum.KeyCode[dadosSalvosAuto.keybind] end)
+        if ok and kc then autoKeyBind = kc end
+    end
+
+    local function atualizarPainelVisual()
+        sPR.Enabled = (ladoEscolhido == "RIGHT")
+        sPL.Enabled = (ladoEscolhido == "LEFT")
+        dotR.BackgroundColor3 = (ladoEscolhido == "RIGHT") and DOT_ON or DOT_OFF
+        dotL.BackgroundColor3 = (ladoEscolhido == "LEFT")  and DOT_ON or DOT_OFF
+    end
+    atualizarPainelVisual()
+
+    local _autoToggleSettings = makeInlineExpand(fAuto, 34, 98)
+    btnGear.MouseButton1Click:Connect(function() if _dragJustHappened then return end _autoToggleSettings() end)
+
+    btnPR.MouseButton1Click:Connect(function()
+        if _dragJustHappened then return end
+        ladoEscolhido = "RIGHT"
+        atualizarPainelVisual(); atualizarBtnAutoVisual()
+
+        local tw = TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+        TweenService:Create(fAuto, tw, {Size = UDim2.new(0, fAuto.Size.X.Offset, 0, 34)}):Play()
+    end)
+
+    btnPL.MouseButton1Click:Connect(function()
+        if _dragJustHappened then return end
+        ladoEscolhido = "LEFT"
+        atualizarPainelVisual(); atualizarBtnAutoVisual()
+
+        local tw = TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+        TweenService:Create(fAuto, tw, {Size = UDim2.new(0, fAuto.Size.X.Offset, 0, 34)}):Play()
+    end)
+
+    MakeDrag(fAuto, function()
+        dadosSalvosAuto.px = fAuto.AbsolutePosition.X
+        dadosSalvosAuto.py = fAuto.AbsolutePosition.Y
+        salvarDadosAuto()
+    end)
+
+    local waitingKeyL = false; local waitingKeyR = false
+    local keyBindL = nil; local keyBindR = nil
+
+    local function atualizarEstadoL(v)
+        AutoL = v
+        if not v and not AutoR then
+            AutoPlayAtivo = false; autoPlayOn = false
+            if mvSpeedOn and _bridgeSetMvSpeed and not lp:GetAttribute("Stealing") then _bridgeSetMvSpeed(duelNotStealSpeed) end
+            atualizarBtnAutoVisual()
+        end
+    end
+    local function atualizarEstadoR(v)
+        AutoR = v
+        if not v and not AutoL then
+            AutoPlayAtivo = false; autoPlayOn = false
+            if mvSpeedOn and _bridgeSetMvSpeed and not lp:GetAttribute("Stealing") then _bridgeSetMvSpeed(duelNotStealSpeed) end
+            atualizarBtnAutoVisual()
+        end
+    end
+
+    local heartbeatL = nil; local heartbeatR = nil
+    local isReturning = false; local isGoingToSlot = false
+
+    local function finalizarPercursoLeft()
+        if heartbeatL then heartbeatL:Disconnect(); heartbeatL = nil end
+        isReturning = false; SpeedValueLeft = savedSpeedLeft
+        local char = LocalPlayer.Character
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+        if hrp then hrp.AssemblyLinearVelocity = Vector3.zero end
+        if hum then hum:Move(Vector3.zero) end
+        atualizarEstadoL(false)
+    end
+
+    local function returnToBaseLeft()
+        if heartbeatL then heartbeatL:Disconnect(); heartbeatL = nil end
+        isReturning = true; isGoingToSlot = false
+        local c0 = LocalPlayer.Character
+        local h0 = c0 and c0:FindFirstChild("HumanoidRootPart")
+        local hum0 = c0 and c0:FindFirstChildOfClass("Humanoid")
+        if h0 then h0.AssemblyLinearVelocity = Vector3.zero end
+        if hum0 then hum0:Move(Vector3.zero) end
+        SpeedValueLeft = duelReturnSpeed
+        local waypoints = {R1, P1, P2}; local wp = 1; local duelBarTriggered = false
+        heartbeatL = RunService.Heartbeat:Connect(function()
+            if not AutoL then heartbeatL:Disconnect(); heartbeatL = nil; return end
+            local char = LocalPlayer.Character; if not char then return end
+            local hrp = char:FindFirstChild("HumanoidRootPart")
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            if not hrp or not hum then return end
+            local target = waypoints[wp]
+            local dist = (Vector3.new(target.X, hrp.Position.Y, target.Z) - hrp.Position).Magnitude
+            if dist < 1.5 then
+                if wp == 1 and not duelBarTriggered then duelBarTriggered = true; duelBarSetPhase(0) end
+                if wp < #waypoints then wp = wp + 1 else finalizarPercursoLeft(); return end
             end
-            for _, c in ipairs(getconnections(prompt.Triggered)) do
-                if c.Function then table.insert(data.triggerCallbacks, c.Function) end
+            local dir = (target - hrp.Position).Unit
+            hum:Move(dir, false)
+            local _sv = mvSpeedOn and mvSpeedVal or SpeedValueLeft
+            hrp.AssemblyLinearVelocity = Vector3.new(dir.X * _sv, hrp.AssemblyLinearVelocity.Y, dir.Z * _sv)
+        end)
+    end
+
+    local function runAutoLeft()
+        if heartbeatL then heartbeatL:Disconnect(); heartbeatL = nil end
+        isGoingToSlot = true; isReturning = false; duelBarSetPhase(1)
+        local char = LocalPlayer.Character; if not char then atualizarEstadoL(false); return end
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if not hrp or not hum then atualizarEstadoL(false); return end
+        SpeedValueLeft = duelNotStealSpeed; savedSpeedLeft = duelNotStealSpeed
+        local phase = 1
+        heartbeatL = RunService.Heartbeat:Connect(function()
+            if not AutoL then heartbeatL:Disconnect(); heartbeatL = nil; return end
+            char = LocalPlayer.Character; if not char then return end
+            hrp = char:FindFirstChild("HumanoidRootPart"); hum = char:FindFirstChildOfClass("Humanoid")
+            if not hrp or not hum then return end
+            local target = phase == 1 and R1 or (phase == 2 and R2 or R_EXTRA)
+            local dist = (target - Vector3.new(hrp.Position.X, target.Y, hrp.Position.Z)).Magnitude
+            if dist < 1.5 then
+                if phase == 1 then
+                    phase = 2; SpeedValueLeft = 58; duelBarSetPhase(2)
+                elseif phase == 2 then
+                    phase = 3; SpeedValueLeft = 55; duelBarSetPhase(3)
+                else
+                    if mvSpeedOn and _bridgeSetMvSpeed then _bridgeSetMvSpeed(duelReturnSpeed) end
+                    heartbeatL:Disconnect(); heartbeatL = nil
+                    if rEndDelay and rEndDelay > 0 then
+                        task.delay(rEndDelay, function() returnToBaseLeft() end)
+                    else
+                        returnToBaseLeft()
+                    end
+                    return
+                end
+            end
+            local dir = (target - hrp.Position).Unit
+            hum:Move(dir, false)
+            local _sv = mvSpeedOn and mvSpeedVal or SpeedValueLeft
+            hrp.AssemblyLinearVelocity = Vector3.new(dir.X * _sv, hrp.AssemblyLinearVelocity.Y, dir.Z * _sv)
+        end)
+    end
+
+    local function finalizarPercursoRight()
+        if heartbeatR then heartbeatR:Disconnect(); heartbeatR = nil end
+        isReturning = false; SpeedValueRight = savedSpeedRight
+        local char = LocalPlayer.Character
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+        if hrp then hrp.AssemblyLinearVelocity = Vector3.zero end
+        if hum then hum:Move(Vector3.zero) end
+        atualizarEstadoR(false)
+    end
+
+    local function returnToBaseRight()
+        if heartbeatR then heartbeatR:Disconnect(); heartbeatR = nil end
+        isReturning = true; isGoingToSlot = false
+        local c0 = LocalPlayer.Character
+        local h0 = c0 and c0:FindFirstChild("HumanoidRootPart")
+        local hum0 = c0 and c0:FindFirstChildOfClass("Humanoid")
+        if h0 then h0.AssemblyLinearVelocity = Vector3.zero end
+        if hum0 then hum0:Move(Vector3.zero) end
+        SpeedValueRight = duelReturnSpeed
+        local waypoints = {P1, R1, R2}; local wp = 1; local duelBarTriggered = false
+        heartbeatR = RunService.Heartbeat:Connect(function()
+            if not AutoR then heartbeatR:Disconnect(); heartbeatR = nil; return end
+            local char = LocalPlayer.Character; if not char then return end
+            local hrp = char:FindFirstChild("HumanoidRootPart")
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            if not hrp or not hum then return end
+            local target = waypoints[wp]
+            local dist = (Vector3.new(target.X, hrp.Position.Y, target.Z) - hrp.Position).Magnitude
+            if dist < 1.5 then
+                if wp == 1 and not duelBarTriggered then duelBarTriggered = true; duelBarSetPhase(0) end
+                if wp < #waypoints then wp = wp + 1 else finalizarPercursoRight(); return end
+            end
+            local dir = (target - hrp.Position).Unit
+            hum:Move(dir, false)
+            local _sv = mvSpeedOn and mvSpeedVal or SpeedValueRight
+            hrp.AssemblyLinearVelocity = Vector3.new(dir.X * _sv, hrp.AssemblyLinearVelocity.Y, dir.Z * _sv)
+        end)
+    end
+
+    local function runAutoRight()
+        if heartbeatR then heartbeatR:Disconnect(); heartbeatR = nil end
+        isGoingToSlot = true; isReturning = false; duelBarSetPhase(1)
+        local char = LocalPlayer.Character; if not char then atualizarEstadoR(false); return end
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if not hrp or not hum then atualizarEstadoR(false); return end
+        SpeedValueRight = duelNotStealSpeed; savedSpeedRight = duelNotStealSpeed
+        local phase = 1
+        heartbeatR = RunService.Heartbeat:Connect(function()
+            if not AutoR then heartbeatR:Disconnect(); heartbeatR = nil; return end
+            char = LocalPlayer.Character; if not char then return end
+            hrp = char:FindFirstChild("HumanoidRootPart"); hum = char:FindFirstChildOfClass("Humanoid")
+            if not hrp or not hum then return end
+            local target = phase == 1 and P1 or (phase == 2 and P2 or P_EXTRA)
+            local dist = (target - Vector3.new(hrp.Position.X, target.Y, hrp.Position.Z)).Magnitude
+            if dist < 1.5 then
+                if phase == 1 then
+                    phase = 2; SpeedValueRight = 58; duelBarSetPhase(2)
+                elseif phase == 2 then
+                    phase = 3; SpeedValueRight = 55; duelBarSetPhase(3)
+                else
+                    if mvSpeedOn and _bridgeSetMvSpeed then _bridgeSetMvSpeed(duelReturnSpeed) end
+                    heartbeatR:Disconnect(); heartbeatR = nil
+                    if pEndDelay and pEndDelay > 0 then
+                        task.delay(pEndDelay, function() returnToBaseRight() end)
+                    else
+                        returnToBaseRight()
+                    end
+                    return
+                end
+            end
+            local dir = (target - hrp.Position).Unit
+            hum:Move(dir, false)
+            local sv = mvSpeedOn and mvSpeedVal or SpeedValueRight
+            hrp.AssemblyLinearVelocity = Vector3.new(dir.X * sv, hrp.AssemblyLinearVelocity.Y, dir.Z * sv)
+        end)
+    end
+
+    local function executarLado(lado)
+        AutoPlayAtivo = true; autoPlayOn = true
+        if mvSpeedOn and _bridgeSetMvSpeed then _bridgeSetMvSpeed(duelNotStealSpeed) end
+        atualizarBtnAutoVisual()
+        if lado == "LEFT" then
+            AutoR = false; AutoL = true
+            if heartbeatR then heartbeatR:Disconnect(); heartbeatR = nil end
+            runAutoLeft()
+        else
+            AutoL = false; AutoR = true
+            if heartbeatL then heartbeatL:Disconnect(); heartbeatL = nil end
+            runAutoRight()
+        end
+    end
+
+    do
+        local lookAlign  = nil
+        local lookAttach = nil
+        local wasActive  = false
+
+        local function cleanLook()
+            if lookAlign  and lookAlign.Parent  then lookAlign:Destroy()  end
+            if lookAttach and lookAttach.Parent then lookAttach:Destroy() end
+            lookAlign = nil; lookAttach = nil
+        end
+
+        local function setupLook(hrp)
+            cleanLook()
+            lookAttach = Instance.new("Attachment", hrp)
+            lookAlign  = Instance.new("AlignOrientation", hrp)
+            lookAlign.Attachment0     = lookAttach
+            lookAlign.Mode            = Enum.OrientationAlignmentMode.OneAttachment
+            lookAlign.RigidityEnabled = true
+            lookAlign.Responsiveness  = 200
+            lookAlign.Enabled         = false
+        end
+
+        RunService.Heartbeat:Connect(function(dt)
+            local active = AutoPlayAtivo
+
+            if active then
+                local char = LocalPlayer.Character
+                local hrp  = char and char:FindFirstChild("HumanoidRootPart")
+                if hrp then
+                    if not lookAlign or not lookAlign.Parent then
+                        setupLook(hrp)
+                    end
+
+                    local targetPart = findNearestTarget()
+                    local targetPos  = targetPart and targetPart.Position
+
+                    if targetPos then
+                        local diff = targetPos - hrp.Position
+                        local flat = Vector3.new(diff.X, 0, diff.Z)
+                        if flat.Magnitude > 0.5 then
+                            lookAlign.Enabled = true
+                            lookAlign.CFrame  = CFrame.lookAt(Vector3.zero, flat)
+                        end
+                    else
+                        if lookAlign then lookAlign.Enabled = false end
+                    end
+
+                    local vel = hrp.AssemblyLinearVelocity
+                    if vel.Magnitude > 5 then
+                        local t = tick()
+                        local perp = Vector3.new(-vel.Z, 0, vel.X).Unit
+                        local jitter = math.sin(t * 8.3) * 0.018
+                        hrp.AssemblyLinearVelocity = vel + perp * (vel.Magnitude * jitter)
+                    end
+                else
+                    cleanLook()
+                end
+                wasActive = true
+            elseif wasActive then
+                cleanLook()
+                wasActive = false
+            end
+        end)
+    end
+
+    local function iniciarAutoPlay()
+        if not ladoEscolhido then return end
+        autoPlayWasActive = true
+        if aimEnabled and stopAimBot then
+            aimEnabled = false; stopAimBot()
+            if LockFrame and aimRedDot then setHubActive(LockFrame, aimRedDot, false) end
+        end
+        if abEnabled and stopAbAim then
+            abEnabled = false; stopAbAim()
+            if abFrame and abRedDot then setHubActive(abFrame, abRedDot, false) end
+        end
+        if mvSpeedOn and _bridgeSetMvSpeed then
+            if lp:GetAttribute("Stealing") then
+                _bridgeSetMvSpeed(duelReturnSpeed)
+            else
+                _bridgeSetMvSpeed(duelNotStealSpeed)
+            end
+        end
+        executarLado(ladoEscolhido)
+    end
+
+    local function hasBrainrotInHand()
+        if lp:GetAttribute("Stealing") then return true end
+        local c = LocalPlayer.Character; if not c then return false end
+        for _, obj in ipairs(c:GetChildren()) do
+            if obj:IsA("Tool") and obj.Name:lower():find("brainrot") then return true end
+        end
+        return false
+    end
+
+    do
+        local _brConn  = nil
+        local _brAlign = nil
+        local _brAttch = nil
+
+        local function stopBrLook()
+            if _brConn  then _brConn:Disconnect();  _brConn  = nil end
+            if _brAlign then pcall(function() _brAlign:Destroy() end); _brAlign = nil end
+            if _brAttch then pcall(function() _brAttch:Destroy() end); _brAttch = nil end
+            local c = LocalPlayer.Character
+            if c then
+                local h = c:FindFirstChildOfClass("Humanoid")
+                if h then h.AutoRotate = true end
+            end
+        end
+
+        local function startBrLook()
+            stopBrLook()
+            local c = LocalPlayer.Character; if not c then return end
+            local hrp = c:FindFirstChild("HumanoidRootPart"); if not hrp then return end
+            _brAttch = Instance.new("Attachment", hrp)
+            _brAlign = Instance.new("AlignOrientation", hrp)
+            _brAlign.Attachment0     = _brAttch
+            _brAlign.Mode            = Enum.OrientationAlignmentMode.OneAttachment
+            _brAlign.RigidityEnabled = true
+            _brAlign.Enabled         = false
+            _brConn = RunService.Heartbeat:Connect(function()
+                if not hasBrainrotInHand() then stopBrLook(); return end
+                local ch = LocalPlayer.Character; if not ch then return end
+                local h  = ch:FindFirstChild("HumanoidRootPart"); if not h then return end
+                local hum = ch:FindFirstChildOfClass("Humanoid"); if not hum then return end
+                local nearest, nearDist = nil, 20
+                for _, p in ipairs(Players:GetPlayers()) do
+                    if p ~= lp and p.Character then
+                        local eh = p.Character:FindFirstChild("HumanoidRootPart")
+                        if eh then
+                            local d = (eh.Position - h.Position).Magnitude
+                            if d < nearDist then nearest, nearDist = eh, d end
+                        end
+                    end
+                end
+                if nearest and _brAlign then
+                    local diff = nearest.Position - h.Position
+                    local flat = Vector3.new(diff.X, 0, diff.Z)
+                    if flat.Magnitude > 0.1 then
+                        hum.AutoRotate = false
+                        _brAlign.Enabled = true
+                        _brAlign.CFrame  = CFrame.lookAt(Vector3.zero, flat)
+                    end
+                else
+                    if _brAlign then _brAlign.Enabled = false end
+                    hum.AutoRotate = true
+                end
+            end)
+        end
+
+        local function checkBR()
+            if hasBrainrotInHand() then
+                if not _brConn then startBrLook() end
+            else
+                stopBrLook()
+            end
+        end
+
+        local function connectChar(char)
+            if not char then return end
+            char.ChildAdded:Connect(function(o)
+                if o:IsA("Tool") then task.wait(0.05); checkBR() end
+            end)
+            char.ChildRemoved:Connect(function(o)
+                if o:IsA("Tool") then task.wait(0.05); checkBR() end
+            end)
+            pcall(function()
+                lp:GetAttributeChangedSignal("Stealing"):Connect(checkBR)
+            end)
+        end
+
+        connectChar(LocalPlayer.Character)
+        LocalPlayer.CharacterAdded:Connect(function(char)
+            task.wait(0.5); stopBrLook(); connectChar(char)
+        end)
+    end
+
+    local function pararAutoPlay()
+        autoPlayWasActive = false
+        AutoPlayAtivo = false; autoPlayOn = false
+        AutoL = false; AutoR = false
+        if heartbeatL then heartbeatL:Disconnect(); heartbeatL = nil end
+        if heartbeatR then heartbeatR:Disconnect(); heartbeatR = nil end
+        if mvSpeedOn and _bridgeSetMvSpeed and not lp:GetAttribute("Stealing") then _bridgeSetMvSpeed(duelNotStealSpeed) end
+        atualizarBtnAutoVisual()
+        local char = LocalPlayer.Character
+        if char then local hum = char:FindFirstChildOfClass("Humanoid"); if hum then hum:Move(Vector3.zero) end end
+    end
+    pararAutoPlayGlobal = pararAutoPlay
+
+    btnAuto.MouseButton1Click:Connect(function()
+        if _dragJustHappened then return end
+        if not ladoEscolhido then return end
+        if not speedWhileStealActive and not mvSpeedOn then
+            showToast("Ative o Speed primeiro!")
+            return
+        end
+        if AutoPlayAtivo then pararAutoPlay() else iniciarAutoPlay() end
+    end)
+
+    UIS.InputBegan:Connect(function(input, gp)
+        if gp then return end
+        if autoKeyBind and not autoWaitingKey and input.KeyCode == autoKeyBind then
+            if ladoEscolhido and (speedWhileStealActive or mvSpeedOn) then
+                if AutoPlayAtivo then pararAutoPlay() else iniciarAutoPlay() end
             end
         end
     end)
-    lustStealCache[prompt] = data
+
+    LocalPlayer.CharacterAdded:Connect(function(char)
+        char:WaitForChild("HumanoidRootPart")
+        char:WaitForChildOfClass("Humanoid")
+        if heartbeatL then heartbeatL:Disconnect(); heartbeatL = nil end
+        if heartbeatR then heartbeatR:Disconnect(); heartbeatR = nil end
+        AutoL = false; AutoR = false
+        if autoPlayWasActive and ladoEscolhido then
+            task.wait(1.2)
+            if autoPlayWasActive and ladoEscolhido then
+                AutoPlayAtivo = true; autoPlayOn = true
+                executarLado(ladoEscolhido)
+            end
+        else
+            atualizarBtnAutoVisual()
+        end
+    end)
+
+    LocalPlayer.CharacterRemoving:Connect(function()
+        if heartbeatL then heartbeatL:Disconnect(); heartbeatL = nil end
+        if heartbeatR then heartbeatR:Disconnect(); heartbeatR = nil end
+        AutoL = false; AutoR = false
+        AutoPlayAtivo = false; autoPlayOn = false
+        autoPlayWasActive = false
+        atualizarBtnAutoVisual()
+    end)
+
+    local function pararDuelCompleto()
+        autoPlayWasActive = false
+        if heartbeatL then heartbeatL:Disconnect(); heartbeatL = nil end
+        if heartbeatR then heartbeatR:Disconnect(); heartbeatR = nil end
+        AutoL = false; AutoR = false; AutoPlayAtivo = false; autoPlayOn = false
+        if mvSpeedOn and _bridgeSetMvSpeed and not lp:GetAttribute("Stealing") then _bridgeSetMvSpeed(duelNotStealSpeed) end
+        atualizarBtnAutoVisual()
+        local char = LocalPlayer.Character
+        if char then local hum = char:FindFirstChildOfClass("Humanoid"); if hum then hum:Move(Vector3.zero) end end
+    end
+    stopDuelExterno = pararDuelCompleto
+
+    return {
+        toggle = function()
+            if AutoPlayAtivo then pararDuelCompleto() else iniciarAutoPlay() end
+        end,
+        isActive = function() return AutoPlayAtivo end,
+        setLado = function(lado)
+            ladoEscolhido = lado
+        end,
+        setSideVisual = function(lado)
+            ladoEscolhido = lado
+            atualizarPainelVisual()
+            atualizarBtnAutoVisual()
+        end,
+        setNotStealSpeed = function(v)
+            SpeedValueLeft  = v; savedSpeedLeft  = v
+            SpeedValueRight = v; savedSpeedRight = v
+        end,
+        getPositions = function()
+            return {P1=P1, P2=P2, P_EXTRA=P_EXTRA, R1=R1, R2=R2, R_EXTRA=R_EXTRA}
+        end,
+        getDelays = function()
+            return {pEndDelay=pEndDelay, rEndDelay=rEndDelay}
+        end,
+        setDelay = function(name, val)
+            if name == "pEndDelay" then pEndDelay = val
+            elseif name == "rEndDelay" then rEndDelay = val
+            end
+            local _pd2 = cfgGet("duelPositions") or {}
+            _pd2.pEndDelay = pEndDelay
+            _pd2.rEndDelay = rEndDelay
+            cfgSet("duelPositions", _pd2)
+        end,
+        setPosition = function(name, v3)
+            if     name == "P1"      then P1      = v3
+            elseif name == "P2"      then P2      = v3
+            elseif name == "P_EXTRA" then P_EXTRA = v3
+            elseif name == "R1"      then R1      = v3
+            elseif name == "R2"      then R2      = v3
+            elseif name == "R_EXTRA" then R_EXTRA = v3
+            end
+        end,
+    }
 end
 
-local function executeSteal(prompt, slot)
-    if isStealing then return end
-    lustBuildCallbacks(prompt)
-    local data = lustStealCache[prompt]
-    if not data or not data.ready then return end
-    data.ready = false
-    isStealing = true
+-- ============================================================
+-- MINI HUB DE POSIÃ‡Ã•ES
+-- ============================================================
+;(function()
+    local posGui = Instance.new("ScreenGui", lp:WaitForChild("PlayerGui"))
+    posGui.Name = "PosHubGui"
+    posGui.ResetOnSpawn = false
+    posGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    posGui.Enabled = false
+
+    local KEYS   = {"P1","P2","P_EXTRA","R1","R2","R_EXTRA"}
+    local LABELS = {"P1","P2","P END","R1","R2","R END"}
+    local COLORS = {
+        Color3.fromRGB(80,160,255),
+        Color3.fromRGB(50,120,220),
+        Color3.fromRGB(30,80,180),
+        Color3.fromRGB(255,120,80),
+        Color3.fromRGB(220,70,50),
+        Color3.fromRGB(180,40,30),
+    }
+
+    local ROW_H   = 26
+    local PAD     = 8
+    local W       = 200
+    local H_TITLE = 28
+    local BTN_H   = 28
+    local H_TOTAL = H_TITLE + #KEYS * ROW_H + PAD + BTN_H + 4
+
+    local _posSaved = cfgGet("posHubPos") or {}
+    local fPos = Instance.new("Frame", posGui)
+    fPos.Name = "PosHub"
+    fPos.Size = UDim2.new(0, W, 0, H_TOTAL)
+    if _posSaved.px and _posSaved.px >= 0 then
+        fPos.Position = UDim2.new(0, _posSaved.px, 0, _posSaved.py)
+    else
+        local vp = workspace.CurrentCamera.ViewportSize
+        fPos.Position = UDim2.new(0, math.floor(vp.X/2 - W/2), 0, math.floor(vp.Y - H_TOTAL - 80))
+    end
+    fPos.BackgroundColor3 = Color3.fromRGB(35, 8, 8)
+    fPos.Active = true
+    fPos.BorderSizePixel = 0
+    Instance.new("UICorner", fPos).CornerRadius = UDim.new(0, 10)
+    applyHubGradient(fPos)
+    addDefaultStroke(fPos)
+
+    local title = Instance.new("TextLabel", fPos)
+    title.Size = UDim2.new(1, -8, 0, H_TITLE)
+    title.Position = UDim2.new(0, 8, 0, 0)
+    title.BackgroundTransparency = 1
+    title.Text = "SET POSITIONS"
+    title.Font = Enum.Font.Bangers
+    title.TextSize = 15
+    title.TextColor3 = Color3.new(1,1,1)
+    title.TextXAlignment = Enum.TextXAlignment.Left
+
+    local btnClose = Instance.new("TextButton", fPos)
+    btnClose.Size = UDim2.new(0, 22, 0, 22)
+    btnClose.Position = UDim2.new(1, -26, 0, 3)
+    btnClose.BackgroundTransparency = 1
+    btnClose.Text = "âœ•"
+    btnClose.Font = Enum.Font.GothamBold
+    btnClose.TextSize = 12
+    btnClose.TextColor3 = Color3.fromRGB(160,160,160)
+    btnClose.AutoButtonColor = false
+    btnClose.MouseButton1Click:Connect(function()
+        posGui.Enabled = false
+    end)
+
+    local _drag = false; local _ds, _sap
+    title.InputBegan:Connect(function(i)
+        if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
+            _drag = true; _ds = i.Position; _sap = fPos.AbsolutePosition
+        end
+    end)
+    UIS.InputChanged:Connect(function(i)
+        if _drag and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
+            local d = i.Position - _ds
+            fPos.Position = UDim2.new(0, _sap.X+d.X, 0, _sap.Y+d.Y)
+        end
+    end)
+    UIS.InputEnded:Connect(function(i)
+        if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
+            if _drag then
+                local ap = fPos.AbsolutePosition
+                cfgSetNow("posHubPos", {px=ap.X, py=ap.Y})
+            end
+            _drag = false
+        end
+    end)
+
+    for i, key in ipairs(KEYS) do
+        local rowY = H_TITLE + (i-1)*ROW_H
+
+        local lbl = Instance.new("TextLabel", fPos)
+        lbl.Size = UDim2.new(0, 52, 0, ROW_H)
+        lbl.Position = UDim2.new(0, PAD, 0, rowY)
+        lbl.BackgroundTransparency = 1
+        lbl.Text = LABELS[i]
+        lbl.Font = Enum.Font.Bangers
+        lbl.TextSize = 13
+        lbl.TextColor3 = COLORS[i]
+        lbl.TextXAlignment = Enum.TextXAlignment.Left
+
+        local btnSet = Instance.new("TextButton", fPos)
+        btnSet.Size = UDim2.new(0, 50, 0, 18)
+        btnSet.Position = UDim2.new(0, 62, 0, rowY + 4)
+        btnSet.BackgroundColor3 = Color3.fromRGB(25,25,25)
+        btnSet.Font = Enum.Font.Bangers
+        btnSet.TextSize = 12
+        btnSet.TextColor3 = Color3.fromRGB(200,200,200)
+        btnSet.Text = "SET"
+        btnSet.AutoButtonColor = false
+        btnSet.BorderSizePixel = 0
+        Instance.new("UICorner", btnSet).CornerRadius = UDim.new(0,5)
+        local btnStk = Instance.new("UIStroke", btnSet)
+        btnStk.Color = COLORS[i]; btnStk.Thickness = 1
+
+        local coordLbl = Instance.new("TextLabel", fPos)
+        coordLbl.Size = UDim2.new(0, 76, 0, ROW_H)
+        coordLbl.Position = UDim2.new(0, 116, 0, rowY)
+        coordLbl.BackgroundTransparency = 1
+        coordLbl.Font = Enum.Font.Code
+        coordLbl.TextSize = 8
+        coordLbl.TextColor3 = Color3.fromRGB(130,130,130)
+        coordLbl.TextXAlignment = Enum.TextXAlignment.Left
+        coordLbl.Text = "..."
+
+        local function refreshCoord()
+            if duelModule and duelModule.getPositions then
+                local p = duelModule.getPositions()[key]
+                if p then coordLbl.Text = string.format("%.0f\n%.0f %.0f", p.X, p.Y, p.Z) end
+            end
+        end
+        task.defer(refreshCoord)
+
+        btnSet.MouseButton1Click:Connect(function()
+            local char = LocalPlayer.Character
+            local hrp = char and char:FindFirstChild("HumanoidRootPart")
+            if not hrp then return end
+            if duelModule and duelModule.setPosition then
+                duelModule.setPosition(key, hrp.Position)
+                local pos = duelModule.getPositions()
+                cfgSet("duelPositions", {
+                    P1x=pos.P1.X,     P1y=pos.P1.Y,     P1z=pos.P1.Z,
+                    P2x=pos.P2.X,     P2y=pos.P2.Y,     P2z=pos.P2.Z,
+                    PEXx=pos.P_EXTRA.X, PEXy=pos.P_EXTRA.Y, PEXz=pos.P_EXTRA.Z,
+                    R1x=pos.R1.X,     R1y=pos.R1.Y,     R1z=pos.R1.Z,
+                    R2x=pos.R2.X,     R2y=pos.R2.Y,     R2z=pos.R2.Z,
+                    REXx=pos.R_EXTRA.X, REXy=pos.R_EXTRA.Y, REXz=pos.R_EXTRA.Z,
+                })
+                refreshCoord()
+                showToast(LABELS[i] .. " salvo!")
+                TweenService:Create(btnSet, TweenInfo.new(0.1),
+                    {BackgroundColor3=Color3.fromRGB(30,80,30)}):Play()
+                task.delay(0.4, function()
+                    TweenService:Create(btnSet, TweenInfo.new(0.2),
+                        {BackgroundColor3=Color3.fromRGB(25,25,25)}):Play()
+                end)
+            end
+        end)
+    end
+
+    local showPtsOn = false
+    local wpParts = {}
+
+    local function clearWpParts()
+        for _, p in ipairs(wpParts) do pcall(function() p:Destroy() end) end
+        wpParts = {}
+    end
+
+    local function showWaypoints()
+        clearWpParts()
+        if not duelModule or not duelModule.getPositions then return end
+        local pos = duelModule.getPositions()
+        local nameMap = {P1="P1",P2="P2",P_EXTRA="P End",R1="R1",R2="R2",R_EXTRA="R End"}
+        local colorMap = {
+            P1=Color3.fromRGB(80,160,255), P2=Color3.fromRGB(50,120,220), P_EXTRA=Color3.fromRGB(30,80,180),
+            R1=Color3.fromRGB(255,120,80), R2=Color3.fromRGB(220,70,50),  R_EXTRA=Color3.fromRGB(180,40,30),
+        }
+        for key, v3 in pairs(pos) do
+            local part = Instance.new("Part")
+            part.Size = Vector3.new(1, 1, 1)
+            part.CFrame = CFrame.new(v3.X, v3.Y + 0.5, v3.Z)
+            part.Anchored = true
+            part.CanCollide = false
+            part.Transparency = 0.3
+            part.Color = colorMap[key] or Color3.new(1,1,1)
+            part.Material = Enum.Material.Neon
+            part.Parent = Workspace
+            local bb = Instance.new("BillboardGui", part)
+            bb.Size = UDim2.new(0, 60, 0, 24)
+            bb.StudsOffset = Vector3.new(0, 2, 0)
+            bb.AlwaysOnTop = true
+            local lbl = Instance.new("TextLabel", bb)
+            lbl.Size = UDim2.new(1,0,1,0)
+            lbl.BackgroundTransparency = 1
+            lbl.Font = Enum.Font.Bangers
+            lbl.TextSize = 16
+            lbl.TextColor3 = colorMap[key] or Color3.new(1,1,1)
+            lbl.Text = nameMap[key] or key
+            lbl.TextStrokeTransparency = 0
+            table.insert(wpParts, part)
+        end
+    end
+
+    local DELAY_ROW_H = 26
+    local H_DELAY     = DELAY_ROW_H * 2 + 4
+    fPos.Size = UDim2.new(0, W, 0, H_TOTAL + H_DELAY)
+
+    local delayDefs = {
+        {key="pEndDelay", label="P End Delay", color=Color3.fromRGB(30,80,180)},
+        {key="rEndDelay", label="R End Delay", color=Color3.fromRGB(180,40,30)},
+    }
+    local delayBaseY = H_TITLE + #KEYS * ROW_H + 4
+
+    for di, dd in ipairs(delayDefs) do
+        local rowY = delayBaseY + (di-1) * DELAY_ROW_H
+
+        local lbl = Instance.new("TextLabel", fPos)
+        lbl.Size = UDim2.new(0, 88, 0, DELAY_ROW_H)
+        lbl.Position = UDim2.new(0, PAD, 0, rowY)
+        lbl.BackgroundTransparency = 1
+        lbl.Text = dd.label
+        lbl.Font = Enum.Font.Bangers
+        lbl.TextSize = 13
+        lbl.TextColor3 = dd.color
+        lbl.TextXAlignment = Enum.TextXAlignment.Left
+
+        local btnMinus = Instance.new("TextButton", fPos)
+        btnMinus.Size = UDim2.new(0, 22, 0, 18)
+        btnMinus.Position = UDim2.new(0, 100, 0, rowY + 4)
+        btnMinus.BackgroundColor3 = Color3.fromRGB(25,25,25)
+        btnMinus.Font = Enum.Font.GothamBold
+        btnMinus.TextSize = 14
+        btnMinus.TextColor3 = Color3.fromRGB(200,200,200)
+        btnMinus.Text = "-"
+        btnMinus.AutoButtonColor = false
+        btnMinus.BorderSizePixel = 0
+        Instance.new("UICorner", btnMinus).CornerRadius = UDim.new(0,5)
+        local stk1 = Instance.new("UIStroke", btnMinus); stk1.Color = dd.color; stk1.Thickness = 1
+
+        local valLbl = Instance.new("TextLabel", fPos)
+        valLbl.Size = UDim2.new(0, 36, 0, DELAY_ROW_H)
+        valLbl.Position = UDim2.new(0, 124, 0, rowY)
+        valLbl.BackgroundTransparency = 1
+        valLbl.Font = Enum.Font.GothamBold
+        valLbl.TextSize = 12
+        valLbl.TextColor3 = Color3.fromRGB(220,220,220)
+        valLbl.TextXAlignment = Enum.TextXAlignment.Center
+
+        local btnPlus = Instance.new("TextButton", fPos)
+        btnPlus.Size = UDim2.new(0, 22, 0, 18)
+        btnPlus.Position = UDim2.new(0, 162, 0, rowY + 4)
+        btnPlus.BackgroundColor3 = Color3.fromRGB(25,25,25)
+        btnPlus.Font = Enum.Font.GothamBold
+        btnPlus.TextSize = 14
+        btnPlus.TextColor3 = Color3.fromRGB(200,200,200)
+        btnPlus.Text = "+"
+        btnPlus.AutoButtonColor = false
+        btnPlus.BorderSizePixel = 0
+        Instance.new("UICorner", btnPlus).CornerRadius = UDim.new(0,5)
+        local stk2 = Instance.new("UIStroke", btnPlus); stk2.Color = dd.color; stk2.Thickness = 1
+
+        local function refreshVal()
+            if duelModule and duelModule.getDelays then
+                local d = duelModule.getDelays()
+                valLbl.Text = string.format("%.1fs", d[dd.key] or 0)
+            else
+                valLbl.Text = "0.0s"
+            end
+        end
+        task.defer(refreshVal)
+
+        local function changeDelay(delta)
+            if not duelModule or not duelModule.setDelay then return end
+            local d = duelModule.getDelays()
+            local cur = d[dd.key] or 0
+            cur = math.max(0, math.floor((cur + delta) * 10 + 0.5) / 10)
+            duelModule.setDelay(dd.key, cur)
+            refreshVal()
+        end
+
+        btnMinus.MouseButton1Click:Connect(function() changeDelay(-0.1) end)
+        btnPlus.MouseButton1Click:Connect(function()  changeDelay( 0.1) end)
+    end
+
+    local showBtn = Instance.new("TextButton", fPos)
+    showBtn.Size = UDim2.new(1, -16, 0, BTN_H - 4)
+    showBtn.Position = UDim2.new(0, 8, 0, H_TITLE + #KEYS * ROW_H + H_DELAY + PAD)
+    showBtn.BackgroundColor3 = Color3.fromRGB(25,25,25)
+    showBtn.Font = Enum.Font.Bangers
+    showBtn.TextSize = 13
+    showBtn.TextColor3 = Color3.fromRGB(200,200,200)
+    showBtn.Text = "Show Points"
+    showBtn.AutoButtonColor = false
+    showBtn.BorderSizePixel = 0
+    Instance.new("UICorner", showBtn).CornerRadius = UDim.new(0,6)
+    local showBtnStroke = Instance.new("UIStroke", showBtn)
+    showBtnStroke.Thickness = 1; showBtnStroke.Color = Color3.fromRGB(80,80,80)
+
+    showBtn.MouseButton1Click:Connect(function()
+        showPtsOn = not showPtsOn
+        if showPtsOn then
+            showWaypoints()
+            showBtn.TextColor3 = Color3.fromRGB(255,220,80)
+            showBtnStroke.Color = Color3.fromRGB(255,220,80)
+        else
+            clearWpParts()
+            showBtn.TextColor3 = Color3.fromRGB(200,200,200)
+            showBtnStroke.Color = Color3.fromRGB(80,80,80)
+        end
+    end)
+
+    posGui:GetPropertyChangedSignal("Enabled"):Connect(function()
+        if not posGui.Enabled and showPtsOn then
+            showPtsOn = false
+            clearWpParts()
+            showBtn.TextColor3 = Color3.fromRGB(200,200,200)
+            showBtnStroke.Color = Color3.fromRGB(80,80,80)
+        end
+    end)
+
+    getgenv().__posHubGui = posGui
+end)()
+
+-- ============================================================
+-- LOCK FRAME / AIMBOT
+-- ============================================================
+local AimSpeed = 55
+local aimDadosSalvos = { speed = 55, px = -1, py = -1 }
+
+local function salvarAimConfig()
+    cfgSet("aimBotConfig", aimDadosSalvos)
+end
+local function carregarAimConfig()
+    local dados = cfgGet("aimBotConfig") or {px=130, py=7, speed=58}
+    do
+        if dados.posicaoHub then
+            local vp = workspace.CurrentCamera.ViewportSize
+            dados.px = math.floor((dados.posicaoHub.X or 0.5) * vp.X)
+            dados.py = math.floor((dados.posicaoHub.Y or 0.78) * vp.Y)
+            dados.posicaoHub = nil; dados.posicaoSettings = nil
+        end
+        aimDadosSalvos = dados
+        AimSpeed = math.clamp(aimDadosSalvos.speed or 55, 1, 200)
+    end
+end
+carregarAimConfig()
+
+local function findNearestEnemyAim(myHRP)
+    local nearest, nearestDist, nearestTorso = nil, math.huge, nil
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= lp and p.Character then
+            local eh = p.Character:FindFirstChild("HumanoidRootPart")
+            if not eh then continue end
+            local torso = p.Character:FindFirstChild("UpperTorso") or p.Character:FindFirstChild("Torso")
+            local d = (eh.Position - myHRP.Position).Magnitude
+            if d < nearestDist then nearestDist = d; nearest = eh; nearestTorso = torso or eh end
+        end
+    end
+    return nearest, nearestDist, nearestTorso
+end
+
+local SlapListAim = {"Bat","Slap","Iron Slap","Gold Slap","Diamond Slap","Emerald Slap","Ruby Slap","Dark Matter Slap","Flame Slap","Nuclear Slap","Galaxy Slap","Glitched Slap"}
+local function findBatAim()
+    local c = LocalPlayer.Character; if not c then return nil end
+    local bp = LocalPlayer:FindFirstChildOfClass("Backpack")
+    for _, ch in ipairs(c:GetChildren()) do if ch:IsA("Tool") and ch.Name:lower():find("bat") then return ch end end
+    if bp then for _, ch in ipairs(bp:GetChildren()) do if ch:IsA("Tool") and ch.Name:lower():find("bat") then return ch end end end
+    for _, name in ipairs(SlapListAim) do
+        local t = c:FindFirstChild(name) or (bp and bp:FindFirstChild(name))
+        if t then return t end
+    end
+    return nil
+end
+
+local function activateAntiDie()
+    local char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if not hum then return end
+    hum.BreakJointsOnDeath = false
+    hum:SetStateEnabled(Enum.HumanoidStateType.Dead, false)
+    hum:GetPropertyChangedSignal("Health"):Connect(function()
+        if hum.Health <= 0 then hum.Health = hum.MaxHealth end
+    end)
+    hum.Died:Connect(function()
+        task.wait()
+        local newHum = Instance.new("Humanoid")
+        newHum.Name = "ReplacedHumanoid"; newHum.Parent = char
+        workspace.CurrentCamera.CameraSubject = newHum; hum:Destroy()
+    end)
+end
+
+local aimConnections     = {}
+local _aimCachedTarget, _aimCachedTorso = nil, nil
+local _aimAlign  = nil
+local _aimAttach = nil
+
+local function cleanAimPhysics()
+    if _aimAlign  then pcall(function() _aimAlign:Destroy()  end); _aimAlign  = nil end
+    if _aimAttach then pcall(function() _aimAttach:Destroy() end); _aimAttach = nil end
+end
+
+local function setupAimAlign(hrp)
+    cleanAimPhysics()
+    _aimAttach = Instance.new("Attachment", hrp)
+    _aimAlign  = Instance.new("AlignOrientation", hrp)
+    _aimAlign.Attachment0     = _aimAttach
+    _aimAlign.Mode            = Enum.OrientationAlignmentMode.OneAttachment
+    _aimAlign.RigidityEnabled = true
+    _aimAlign.Enabled         = false
+end
+
+startAimBot = function()
+    if aimConnections.aimbot then return end
+    activateAntiDie()
+    if stopDuelExterno then stopDuelExterno() end
+    if autoPlayOn and pararAutoPlayGlobal then pararAutoPlayGlobal() end
+
+    local c0 = LocalPlayer.Character
+    if c0 then
+        local hum0 = c0:FindFirstChildOfClass("Humanoid")
+        if hum0 then
+            local bat = findBatAim()
+            if bat then
+                task.spawn(function()
+                    pcall(function() hum0:UnequipTools() end)
+                    task.wait(0.05)
+                    pcall(function() hum0:EquipTool(bat) end)
+                end)
+            end
+        end
+        local hrp0 = c0:FindFirstChild("HumanoidRootPart")
+        if hrp0 then setupAimAlign(hrp0) end
+    end
+
+    aimConnections.aimbot = RunService.Heartbeat:Connect(function()
+        if not aimEnabled then return end
+        local c = LocalPlayer.Character; if not c then return end
+        local h   = c:FindFirstChild("HumanoidRootPart")
+        local hum = c:FindFirstChildOfClass("Humanoid")
+        if not h or not hum then return end
+
+        if not _aimAlign or not _aimAlign.Parent then setupAimAlign(h) end
+
+        local target, dist, torso = findNearestEnemyAim(h)
+        if not target or not target.Parent then
+            _aimCachedTarget = nil; _aimCachedTorso = nil
+            if _aimAlign then _aimAlign.Enabled = false end
+            hum.AutoRotate = true
+            return
+        end
+        _aimCachedTarget = target; _aimCachedTorso = torso
+
+        local aimPos  = target.Position
+        local diff    = aimPos - h.Position
+        local flatDir = Vector3.new(diff.X, 0, diff.Z)
+
+        if flatDir.Magnitude > 0.1 and _aimAlign then
+            hum.AutoRotate = false
+            _aimAlign.Enabled = true
+            _aimAlign.CFrame  = CFrame.lookAt(Vector3.zero, Vector3.new(flatDir.X, 0, flatDir.Z))
+        end
+
+        local flatDist = flatDir.Magnitude
+        local diffY    = diff.Y
+        local velY = math.clamp(diffY * 18, -AimSpeed * 1.5, AimSpeed * 1.5)
+
+        pcall(function()
+            local enemyChar = target.Parent
+            if enemyChar and not enemyChar:FindFirstChild("_AimHitbox") then
+                local hb = Instance.new("Part")
+                hb.Name = "_AimHitbox"; hb.Size = Vector3.new(6,6,6)
+                hb.Transparency = 1; hb.CanCollide = false; hb.Massless = true
+                hb.CFrame = target.CFrame; hb.Parent = enemyChar
+                local w = Instance.new("WeldConstraint")
+                w.Part0 = target; w.Part1 = hb; w.Parent = hb
+            end
+        end)
+
+        if flatDist > 2.5 then
+            local moveDir = flatDir.Unit
+            h.AssemblyLinearVelocity = Vector3.new(
+                moveDir.X * AimSpeed, velY, moveDir.Z * AimSpeed)
+        elseif flatDist > 0.8 then
+            local frac = (flatDist - 0.8) / 1.7
+            local spd  = AimSpeed * math.max(frac, 0.1)
+            local moveDir = flatDir.Unit
+            h.AssemblyLinearVelocity = Vector3.new(
+                moveDir.X * spd, velY, moveDir.Z * spd)
+        else
+            local tv = target.AssemblyLinearVelocity
+            h.AssemblyLinearVelocity = Vector3.new(tv.X * 0.3, velY, tv.Z * 0.3)
+            local snapPos = target.Position + (h.Position - target.Position).Unit * 0.7
+            h.CFrame = CFrame.new(Vector3.new(snapPos.X, h.Position.Y, snapPos.Z))
+        end
+    end)
+end
+
+local function cleanAimHitboxes()
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= lp and p.Character then
+            local hb = p.Character:FindFirstChild("_AimHitbox")
+            if hb then pcall(function() hb:Destroy() end) end
+        end
+    end
+end
+
+stopAimBot = function()
+    if aimConnections.aimbot then aimConnections.aimbot:Disconnect(); aimConnections.aimbot = nil end
+    cleanAimPhysics()
+    cleanAimHitboxes()
+    _aimCachedTarget = nil
+    _aimCachedTorso  = nil
+    local c = LocalPlayer.Character
+    if c then
+        local hum = c:FindFirstChildOfClass("Humanoid")
+        if hum then hum.AutoRotate = true end
+    end
+end
+
+LocalPlayer.CharacterAdded:Connect(function()
+    task.wait(1)
+    activateAntiDie()
+    if aimEnabled then
+        stopAimBot()
+        task.wait(0.1)
+        startAimBot()
+    end
+end)
+
+-- ============================================================
+-- TAUNT BUTTON
+-- ============================================================
+;(function()
+    local tDados = { px = -1, py = -1 }
+    do
+        local d = cfgGet("tauntConfig") or {px=43, py=53}
+        if d then
+            if d.pos then
+                local ok, vp = pcall(function() return workspace.CurrentCamera.ViewportSize end)
+                if ok and vp and vp.X > 0 then
+                    d.px = math.floor((d.pos.X or 0.85) * vp.X)
+                    d.py = math.floor((d.pos.Y or 0.92) * vp.Y)
+                end
+                d.pos = nil
+            end
+            tDados = d
+        end
+    end
+
+    local tFrame = Instance.new("Frame", Screen)
+    tFrameGlobal = tFrame
+    tFrame.Name = "TauntFrame"
+    tFrame.Size = UDim2.new(0, 72, 0, 26)
+    if tDados.px and tDados.px >= 0 then
+        tFrame.Position = UDim2.new(0, tDados.px, 0, tDados.py)
+    else
+        tFrame.Position = UDim2.new(0.85, 0, 0.92, 0)
+    end
+    tFrame.BackgroundColor3 = Color3.fromRGB(35, 8, 8)
+    tFrame.Active = true; tFrame.ZIndex = 5; tFrame.Visible = true
+    Instance.new("UICorner", tFrame).CornerRadius = UDim.new(0, 8)
+    applyHubGradient(tFrame); addDefaultStroke(tFrame)
+
+    MakeDrag(tFrame, function()
+        local vp = workspace.CurrentCamera.ViewportSize
+        local ap = tFrame.AbsolutePosition
+        tDados.px = ap.X; tDados.py = ap.Y
+        cfgSetNow("tauntConfig", tDados)
+    end)
+
+    local tBtn = Instance.new("TextButton", tFrame)
+    tBtn.Size = UDim2.new(1, -4, 1, -4); tBtn.Position = UDim2.new(0, 2, 0, 2)
+    tBtn.BackgroundTransparency = 1; tBtn.Text = "TAUNT"
+    tBtn.TextColor3 = Color3.new(1,1,1); tBtn.Font = Enum.Font.Bangers
+    tBtn.TextSize = 14; tBtn.BorderSizePixel = 0; tBtn.AutoButtonColor = false; tBtn.ZIndex = 6
+    Instance.new("UICorner", tBtn).CornerRadius = UDim.new(0, 6)
+
+    tBtn.MouseButton1Click:Connect(function()
+        if _dragJustHappened then return end
+        local msg = "OR's on top!"
+        local sent = false
+        pcall(function()
+            local tcs = game:GetService("TextChatService")
+            local ch = tcs:FindFirstChild("TextChannels")
+            local general = ch and (ch:FindFirstChild("RBXGeneral") or ch:GetChildren()[1])
+            if general then general:SendAsync(msg); sent = true end
+        end)
+        if not sent then pcall(function()
+            local ev = game:GetService("ReplicatedStorage")
+                :FindFirstChild("DefaultChatSystemChatEvents")
+            ev = ev and ev:FindFirstChild("SayMessageRequest")
+            if ev then ev:FireServer(msg, "All"); sent = true end
+        end) end
+        if not sent then pcall(function()
+            local rs = game:GetService("ReplicatedStorage")
+            local remote = rs:FindFirstChild("SayMessage") or rs:FindFirstChild("ChatMessage")
+                or rs:FindFirstChild("SendMessage")
+            if remote then remote:FireServer(msg) end
+        end) end
+    end)
+end)()
+
+-- ============================================================
+-- FLOAT HUB
+-- ============================================================
+local floatEnabled = false
+local floatHubConn = nil
+local FloatFrame   = nil
+local floatRedDot  = nil
+local _floatPowerRef = nil
+
+local function startFloat()
+    if floatHubConn then floatHubConn:Disconnect(); floatHubConn = nil end
+    floatHubConn = RunService.Heartbeat:Connect(function()
+        if not floatEnabled then return end
+        local char = LocalPlayer.Character; if not char then return end
+        local root = char:FindFirstChild("HumanoidRootPart"); if not root then return end
+        local cv = root.AssemblyLinearVelocity
+        local power = (_floatPowerRef and _floatPowerRef.power) or 14.7
+
+        local rp = RaycastParams.new()
+        rp.FilterType = Enum.RaycastFilterType.Exclude
+        local toExclude = {}
+        for _, p in ipairs(game:GetService("Players"):GetPlayers()) do
+            if p.Character then table.insert(toExclude, p.Character) end
+        end
+        rp.FilterDescendantsInstances = toExclude
+
+        local hit = workspace:Raycast(root.Position, Vector3.new(0, -200, 0), rp)
+        if not hit then return end
+
+        if hit.Position.Y > root.Position.Y then return end
+
+        local targetY = hit.Position.Y + power
+        local yDiff   = targetY - root.Position.Y
+
+        if math.abs(yDiff) > 0.25 then
+            local yVel = yDiff > 0
+                and math.clamp(yDiff * 12, 0, 40)
+                or  math.clamp(yDiff * 5, -10, 0)
+            root.AssemblyLinearVelocity = Vector3.new(cv.X, yVel, cv.Z)
+        else
+            root.AssemblyLinearVelocity = Vector3.new(cv.X, 0, cv.Z)
+        end
+    end)
+end
+
+local function stopFloat()
+    if floatHubConn then floatHubConn:Disconnect(); floatHubConn = nil end
+    local char = LocalPlayer.Character
+    if char then
+        local root = char:FindFirstChild("HumanoidRootPart")
+        if root then
+            root.AssemblyLinearVelocity = Vector3.new(
+                root.AssemblyLinearVelocity.X, 0, root.AssemblyLinearVelocity.Z)
+        end
+    end
+end
+
+LocalPlayer.CharacterAdded:Connect(function()
+    task.wait(1)
+    if floatEnabled then
+        floatEnabled = false
+        pcall(function() setHubActive(FloatFrame, floatRedDot, false) end)
+        stopFloat()
+    end
+end)
+
+;(function()
+LockFrame = Instance.new("Frame", Screen)
+LockFrame.Name = "LockFrame"
+LockFrame.Size = UDim2.new(0, 128, 0, 34)
+storeHubSize(LockFrame)
+LockFrame.Position = (aimDadosSalvos.px and aimDadosSalvos.px >= 0)
+    and UDim2.new(0, aimDadosSalvos.px, 0, aimDadosSalvos.py)
+    or  UDim2.new(0.5, -64, 0.78, 0)
+LockFrame.BackgroundColor3 = Color3.fromRGB(35, 8, 8)
+LockFrame.Active = true; LockFrame.ZIndex = 5; LockFrame.Visible = false
+LockFrame.ClipsDescendants = true
+Instance.new("UICorner", LockFrame).CornerRadius = UDim.new(0, 10)
+applyHubGradient(LockFrame)
+addDefaultStroke(LockFrame)
+
+local function makeDraggableAim(frame)
+    MakeDrag(frame, function()
+        local vp = workspace.CurrentCamera.ViewportSize
+        local ap = frame.AbsolutePosition
+        aimDadosSalvos.px = ap.X; aimDadosSalvos.py = ap.Y
+        salvarAimConfig()
+    end)
+end
+makeDraggableAim(LockFrame)
+
+aimRedDot = Instance.new("TextLabel", LockFrame)
+aimRedDot.Text = "â—‰"; aimRedDot.TextColor3 = DOT_OFF
+aimRedDot.BackgroundTransparency = 1
+aimRedDot.Size = UDim2.new(0,14,0,14)
+aimRedDot.Position = UDim2.new(0,3,0,10)
+aimRedDot.Font = Enum.Font.GothamBold; aimRedDot.TextSize = 13
+
+local lockBtn = Instance.new("TextButton", LockFrame)
+lockBtn.Size = UDim2.new(1,-10,0,32); lockBtn.Position = UDim2.new(0,5,0,1)
+lockBtn.BackgroundTransparency = 1
+lockBtn.Text = "AIM"
+lockBtn.TextColor3 = Color3.new(1,1,1); lockBtn.Font = Enum.Font.Bangers
+lockBtn.TextSize = 16; lockBtn.BorderSizePixel = 0; lockBtn.AutoButtonColor = false
+Instance.new("UICorner", lockBtn).CornerRadius = UDim.new(0, 7)
+
+local aimGear = Instance.new("TextButton", LockFrame)
+aimGear.Text = "âš™"
+aimGear.BackgroundTransparency = 1
+aimGear.TextColor3 = Color3.new(1,1,1); aimGear.Font = Enum.Font.Bangers; aimGear.TextSize = 13
+aimGear.Size = UDim2.new(0,22,0,22); aimGear.Position = UDim2.new(1,-24,0,6)
+aimGear.BorderSizePixel = 0; aimGear.AutoButtonColor = false
+Instance.new("UICorner", aimGear).CornerRadius = UDim.new(0, 6)
+
+local aimDivider = Instance.new("Frame", LockFrame)
+aimDivider.Size = UDim2.new(1, -12, 0, 1)
+aimDivider.Position = UDim2.new(0, 6, 0, 34)
+aimDivider.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+aimDivider.BorderSizePixel = 0; aimDivider.ZIndex = 6
+
+local aimKbHintLbl = Instance.new("TextLabel", LockFrame)
+aimKbHintLbl.TextSize = 11; aimKbHintLbl.BackgroundTransparency = 1
+aimKbHintLbl.Font = Enum.Font.Bangers
+aimKbHintLbl.TextColor3 = Color3.fromRGB(130, 130, 130)
+aimKbHintLbl.Size = UDim2.new(1, -8, 0, 22)
+aimKbHintLbl.Text = "Set keybind in Settings"
+aimKbHintLbl.Position = UDim2.new(0, 6, 0, 38); aimKbHintLbl.ZIndex = 6
+
+local aimValueBox = Instance.new("TextBox", LockFrame)
+aimValueBox.Visible = false; aimValueBox.Size = UDim2.new(0,0,0,0)
+aimValueBox.Parent = LockFrame
+
+UIS.InputBegan:Connect(function(input, gp)
+    if gp then return end
+    if keyBindAim and not waitingKeyAim and input.KeyCode == keyBindAim then
+        aimEnabled = not aimEnabled
+        setHubActive(LockFrame, aimRedDot, aimEnabled)
+        if aimEnabled then
+            if abEnabled and stopAbAim then
+                abEnabled = false; stopAbAim()
+                setHubActive(abFrame, abRedDot, false)
+            end
+            if stopDuelExterno then stopDuelExterno() end
+            startAimBot()
+        else
+            stopAimBot()
+        end
+    end
+end)
+
+lockBtn.MouseButton1Click:Connect(function()
+    if _dragJustHappened then return end
+    aimEnabled = not aimEnabled
+    setHubActive(LockFrame, aimRedDot, aimEnabled)
+    if aimEnabled then
+        if abEnabled and stopAbAim then
+            abEnabled = false; stopAbAim()
+            setHubActive(abFrame, abRedDot, false)
+        end
+        if stopDuelExterno then stopDuelExterno() end
+        startAimBot()
+    else
+        stopAimBot()
+    end
+end)
+local _aimToggleSettings = makeInlineExpand(LockFrame, 34, 66)
+aimGear.MouseButton1Click:Connect(_aimToggleSettings)
+aimValueBox.FocusLost:Connect(function()
+    local v = tonumber(aimValueBox.Text)
+    if v then AimSpeed = math.clamp(v,1,200); aimDadosSalvos.speed = AimSpeed; salvarAimConfig() end
+end)
+end)()
+
+local function execSteal(prompt, animalName)
+    local data = stealCache[prompt]
+    if not data or not data.ready then return false end
+    data.ready = false; isStealing = true
     stealStartTime = tick()
-    if ProgressLabel then ProgressLabel.Text = slot or "STEALING..." end
-    if progressConnection then progressConnection:Disconnect() end
-    progressConnection = RunService.Heartbeat:Connect(function()
-        if not isStealing then progressConnection:Disconnect() return end
+    if ProgressLabel then ProgressLabel.Text = animalName or "STEAL..." end
+    if progressConn   then progressConn:Disconnect() end
+    progressConn = RunService.Heartbeat:Connect(function()
+        if not isStealing then progressConn:Disconnect(); return end
         local prog = math.clamp((tick() - stealStartTime) / Values.STEAL_DURATION, 0, 1)
-        if ProgressBarFill then ProgressBarFill.Size = UDim2.new(prog, 0, 1, 0) end
-        if ProgressPercentLabel then ProgressPercentLabel.Text = math.floor(prog * 100) .. "%" end
+        if ProgressBarFill then ProgressBarFill.Size = UDim2.fromScale(prog, 1) end
+        if ProgressPercentLabel then ProgressPercentLabel.Text = math.floor(prog*100).."%" end
     end)
     task.spawn(function()
         for _, fn in ipairs(data.holdCallbacks) do task.spawn(fn) end
+        local elapsed = 0
+        while elapsed < Values.STEAL_DURATION do elapsed = elapsed + task.wait() end
         for _, fn in ipairs(data.triggerCallbacks) do task.spawn(fn) end
-        task.wait(Values.STEAL_DURATION)
-        if progressConnection then progressConnection:Disconnect() end
+        task.wait(0.01)
+        if progressConn then progressConn:Disconnect(); progressConn = nil end
         ResetProgressBar()
-        data.ready = true
-        isStealing = false
+        task.wait(0.01)
+        data.ready = true; isStealing = false
     end)
+    return true
 end
 
 local function startAutoSteal()
     if Connections.autoSteal then return end
     Connections.autoSteal = RunService.Heartbeat:Connect(function()
         if not Enabled.AutoSteal or isStealing then return end
-        local animal = lustGetNearest()
-        if not animal then return end
-        task.spawn(function()
-            task.wait(0.1)
-            if not Enabled.AutoSteal or isStealing then return end
-            local recheck = lustGetNearest()
-            if recheck and recheck.uid == animal.uid then
-                local prompt = lustFindPrompt(recheck)
-                if prompt then executeSteal(prompt, recheck.slot) end
-            end
-        end)
+        local target, dist = nearestAnimal()
+        if not target then return end
+        local char = LocalPlayer.Character
+        local hrp  = char and (char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("UpperTorso"))
+        if not hrp then return end
+        if dist > Values.STEAL_RADIUS then return end
+        local prompt = promptCache[target.uid]
+        if not prompt or not prompt.Parent then prompt = findPromptCached(target) end
+        if prompt then buildCallbacks(prompt); execSteal(prompt, target.name) end
     end)
 end
 
 local function stopAutoSteal()
-    if Connections.autoSteal then
-        Connections.autoSteal:Disconnect()
-        Connections.autoSteal = nil
-    end
+    if Connections.autoSteal then Connections.autoSteal:Disconnect(); Connections.autoSteal = nil end
     isStealing = false
     ResetProgressBar()
 end
 
--- END LUST INSTA-GRAB LOGIC ---------------------------------------------------
+local function ResetProgressBar()
+    if ProgressBarFill then ProgressBarFill.Size = UDim2.new(0,0,1,0) end
+    if ProgressPercentLabel then ProgressPercentLabel.Text = "0%" end
+    if ProgressLabel then ProgressLabel.Text = "" end
+end
+
 
 -- Anti Ragdoll
 local function startAntiRagdoll()
@@ -815,74 +2269,188 @@ local function stopAutoRight()
     if patrolConn and patrolMode == "none" then patrolConn:Disconnect(); patrolConn = nil end
 end
 -- Bat System
-local SAFE_DELAY = 0.08
+-- ============================================================
+-- AIMBOT (Or's Hub system)
+-- ============================================================
+local startAimBot, stopAimBot
+local aimConnections = {}
 
-local function getBat()
-    local char = LocalPlayer.Character
-    if not char then return nil end
-    local tool = char:FindFirstChild("Bat")
-    if tool then return tool end
-    local backpack = LocalPlayer:FindFirstChild("Backpack")
-    if backpack then
-        tool = backpack:FindFirstChild("Bat")
-        if tool then tool.Parent = char; return tool end
+
+local AimSpeed = 55
+local aimDadosSalvos = { speed = 55, px = -1, py = -1 }
+
+local function -- salvarAimConfig()
+    -- cfgSet("aimBotConfig", aimDadosSalvos)
+end
+local function -- carregarAimConfig()
+    local dados = -- cfgGet("aimBotConfig") or {px=130, py=7, speed=58}
+    do
+        if dados.posicaoHub then
+            local vp = workspace.CurrentCamera.ViewportSize
+            dados.px = math.floor((dados.posicaoHub.X or 0.5) * vp.X)
+            dados.py = math.floor((dados.posicaoHub.Y or 0.78) * vp.Y)
+            dados.posicaoHub = nil; dados.posicaoSettings = nil
+        end
+        aimDadosSalvos = dados
+        AimSpeed = math.clamp(aimDadosSalvos.speed or 55, 1, 200)
+    end
+end
+-- carregarAimConfig()
+
+local function findNearestEnemyAim(myHRP)
+    local nearest, nearestDist, nearestTorso = nil, math.huge, nil
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer and p.Character then
+            local eh = p.Character:FindFirstChild("HumanoidRootPart")
+            if not eh then continue end
+            local torso = p.Character:FindFirstChild("UpperTorso") or p.Character:FindFirstChild("Torso")
+            local d = (eh.Position - myHRP.Position).Magnitude
+            if d < nearestDist then nearestDist = d; nearest = eh; nearestTorso = torso or eh end
+        end
+    end
+    return nearest, nearestDist, nearestTorso
+end
+
+local SlapListAim = {"Bat","Slap","Iron Slap","Gold Slap","Diamond Slap","Emerald Slap","Ruby Slap","Dark Matter Slap","Flame Slap","Nuclear Slap","Galaxy Slap","Glitched Slap"}
+local function findBatAim()
+    local c = LocalPlayer.Character; if not c then return nil end
+    local bp = LocalPlayer:FindFirstChildOfClass("Backpack")
+    for _, ch in ipairs(c:GetChildren()) do if ch:IsA("Tool") and ch.Name:lower():find("bat") then return ch end end
+    if bp then for _, ch in ipairs(bp:GetChildren()) do if ch:IsA("Tool") and ch.Name:lower():find("bat") then return ch end end end
+    for _, name in ipairs(SlapListAim) do
+        local t = c:FindFirstChild(name) or (bp and bp:FindFirstChild(name))
+        if t then return t end
     end
     return nil
 end
 
-local function tryHitBat()
-    if hittingCooldown then return end
-    hittingCooldown = true
-    local bat = getBat()
-    if bat then
-        pcall(function()
-            bat:Activate()
-            local evt = bat:FindFirstChildWhichIsA("RemoteEvent")
-            if evt then evt:FireServer() end
-        end)
-    end
-    task.delay(SAFE_DELAY, function() hittingCooldown = false end)
+local function activateAntiDie()
+    local char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if not hum then return end
+    hum.BreakJointsOnDeath = false
+    hum:SetStateEnabled(Enum.HumanoidStateType.Dead, false)
+    hum:GetPropertyChangedSignal("Health"):Connect(function()
+        if hum.Health <= 0 then hum.Health = hum.MaxHealth end
+    end)
+    hum.Died:Connect(function()
+        task.wait()
+        local newHum = Instance.new("Humanoid")
+        newHum.Name = "ReplacedHumanoid"; newHum.Parent = char
+        workspace.CurrentCamera.CameraSubject = newHum; hum:Destroy()
+    end)
 end
 
-local function getClosestPlayer()
-    local closestPlayer = nil
-    local closestDist = math.huge
-    for _, plr in pairs(Players:GetPlayers()) do
-        if plr ~= LocalPlayer and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
-            local targetHRP = plr.Character.HumanoidRootPart
-            local dist = (hrp.Position - targetHRP.Position).Magnitude
-            if dist < closestDist then
-                closestDist = dist
-                closestPlayer = plr
+local aimConnections     = {}
+local _aimCachedTarget, _aimCachedTorso = nil, nil
+local _aimAlign  = nil
+local _aimAttach = nil
+
+local function cleanAimPhysics()
+    if _aimAlign  then pcall(function() _aimAlign:Destroy()  end); _aimAlign  = nil end
+    if _aimAttach then pcall(function() _aimAttach:Destroy() end); _aimAttach = nil end
+end
+
+local function setupAimAlign(hrp)
+    cleanAimPhysics()
+    _aimAttach = Instance.new("Attachment", hrp)
+    _aimAlign  = Instance.new("AlignOrientation", hrp)
+    _aimAlign.Attachment0     = _aimAttach
+    _aimAlign.Mode            = Enum.OrientationAlignmentMode.OneAttachment
+    _aimAlign.RigidityEnabled = true
+    _aimAlign.Enabled         = false
+end
+
+startAimBot = function()
+    if aimConnections.aimbot then return end
+
+    local c0 = LocalPlayer.Character
+    if c0 then
+        local hum0 = c0:FindFirstChildOfClass("Humanoid")
+        if hum0 then
+            local bat = findBatAim()
+            if bat then
+                task.spawn(function()
+                    pcall(function() hum0:UnequipTools() end)
+                    task.wait(0.05)
+                    pcall(function() hum0:EquipTool(bat) end)
+                end)
             end
         end
-    end
-    return closestPlayer, closestDist
-end
-
-local function flyToFrontOfTarget(targetHRP)
-    if not hrp then return end
-    local char = LocalPlayer.Character
-    local hum = char and char:FindFirstChildOfClass("Humanoid")
-    if not hum then return end
-
-    local forward  = targetHRP.CFrame.LookVector
-    local frontPos = targetHRP.Position + forward * 1.5
-    local toFront  = frontPos - hrp.Position
-    local dist     = toFront.Magnitude
-    local unit     = dist > 0.1 and toFront.Unit or Vector3.new(0, 0, 0)
-
-    -- Face target naturally using Humanoid:Move (no CFrame = no reset)
-    -- This rotates the character toward the enemy including vertical angle
-    local toTarget  = targetHRP.Position - hrp.Position
-    local flatDir   = Vector3.new(toTarget.X, 0, toTarget.Z)
-    if flatDir.Magnitude > 0.1 then
-        hum:Move(flatDir.Unit, false)
+        local hrp0 = c0:FindFirstChild("HumanoidRootPart")
+        if hrp0 then setupAimAlign(hrp0) end
     end
 
-    -- Full 3D velocity toward front of target (handles below/above angles)
-    hrp.AssemblyLinearVelocity = Vector3.new(unit.X * 60, unit.Y * 60, unit.Z * 60)
+    aimConnections.aimbot = RunService.Heartbeat:Connect(function()
+        if not autoBatToggled then return end
+        local c = LocalPlayer.Character; if not c then return end
+        local h   = c:FindFirstChild("HumanoidRootPart")
+        local hum = c:FindFirstChildOfClass("Humanoid")
+        if not h or not hum then return end
+
+        if not _aimAlign or not _aimAlign.Parent then setupAimAlign(h) end
+
+        local target, dist, torso = findNearestEnemyAim(h)
+        if not target or not target.Parent then
+            _aimCachedTarget = nil; _aimCachedTorso = nil
+            if _aimAlign then _aimAlign.Enabled = false end
+            hum.AutoRotate = true
+            return
+        end
+        _aimCachedTarget = target; _aimCachedTorso = torso
+
+        local aimPos  = target.Position
+        local diff    = aimPos - h.Position
+        local flatDir = Vector3.new(diff.X, 0, diff.Z)
+
+        if flatDir.Magnitude > 0.1 and _aimAlign then
+            hum.AutoRotate = false
+            _aimAlign.Enabled = true
+            _aimAlign.CFrame  = CFrame.lookAt(Vector3.zero, Vector3.new(flatDir.X, 0, flatDir.Z))
+        end
+
+        local flatDist = flatDir.Magnitude
+        local diffY    = diff.Y
+        local velY = math.clamp(diffY * 18, -AimSpeed * 1.5, AimSpeed * 1.5)
+
+        if flatDist > 2.5 then
+            local moveDir = flatDir.Unit
+            h.AssemblyLinearVelocity = Vector3.new(
+                moveDir.X * AimSpeed, velY, moveDir.Z * AimSpeed)
+        elseif flatDist > 0.8 then
+            local frac = (flatDist - 0.8) / 1.7
+            local spd  = AimSpeed * math.max(frac, 0.1)
+            local moveDir = flatDir.Unit
+            h.AssemblyLinearVelocity = Vector3.new(
+                moveDir.X * spd, velY, moveDir.Z * spd)
+        else
+            local tv = target.AssemblyLinearVelocity
+            h.AssemblyLinearVelocity = Vector3.new(tv.X * 0.3, velY, tv.Z * 0.3)
+
+        end
+    end)
 end
+
+stopAimBot = function()
+    if aimConnections.aimbot then aimConnections.aimbot:Disconnect(); aimConnections.aimbot = nil end
+    cleanAimPhysics()
+    _aimCachedTarget = nil
+    _aimCachedTorso  = nil
+    local c = LocalPlayer.Character
+    if c then
+        local hum = c:FindFirstChildOfClass("Humanoid")
+        if hum then hum.AutoRotate = true end
+    end
+end
+
+LocalPlayer.CharacterAdded:Connect(function()
+    task.wait(1)
+    if aimEnabled then
+        stopAimBot()
+        task.wait(0.1)
+        startAimBot()
+    end
+end)
 
 -- Settings Functions
 local function applyFOV(value)
@@ -941,7 +2509,6 @@ local function saveConfig()
         autoRightEnabled = Enabled.AutoRightEnabled,
         floatEnabled = floatEnabled,
         floatHeight = floatHeight,
-
     }
     
     local ok = false
@@ -997,7 +2564,6 @@ local function loadConfig()
     if cfg.autoRightEnabled ~= nil then Enabled.AutoRightEnabled = cfg.autoRightEnabled end
     if cfg.floatEnabled ~= nil then floatEnabled = cfg.floatEnabled end
     if cfg.floatHeight then floatHeight = cfg.floatHeight end
-
 end
 
 loadConfig()
@@ -1060,7 +2626,7 @@ if true then -- mobile buttons (always enabled)
         btn.Name = name
         btn.Size = UDim2.new(0, BTN_W, 0, BTN_H)
         btn.Position = UDim2.new(0, startX, 0, startY)
-        btn.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+        btn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
         btn.BackgroundTransparency = 0
         btn.BorderSizePixel = 0
         btn.Text = name
@@ -1088,7 +2654,7 @@ if true then -- mobile buttons (always enabled)
                 btn.BackgroundTransparency = 0
                 btn.TextColor3 = Color3.fromRGB(255, 255, 255)
             else
-                btn.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+                btn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
                 btn.BackgroundTransparency = 0
                 btn.TextColor3 = Color3.fromRGB(210, 20, 20)
             end
@@ -1164,79 +2730,22 @@ if true then -- mobile buttons (always enabled)
             TweenService:Create(batSwBg, TweenInfo.new(0.2), {BackgroundColor3 = on and C_PURPLE or C_SW_OFF}):Play()
             TweenService:Create(batSwCircle, TweenInfo.new(0.2, Enum.EasingStyle.Back), {Position = on and UDim2.new(1,-19,0.5,-8) or UDim2.new(0,3,0.5,-8)}):Play()
         end
-        -- Turn off A.LEFT and A.RIGHT when BAT turns on
         if on then
             if MobileButtons["A.LEFT"] then MobileButtons["A.LEFT"].setState(false) end
             if MobileButtons["A.RIGHT"] then MobileButtons["A.RIGHT"].setState(false) end
             if setAutoLeft then setAutoLeft(false) end
             if setAutoRight then setAutoRight(false) end
+            aimEnabled = true
+            if startAimBot then startAimBot() end
+        else
+            aimEnabled = false
+            if stopAimBot then stopAimBot() end
         end
     end)
 
-    -- UI button: round "S" logo on left edge
-    do
-        local uiToggleBtn = Instance.new("TextButton")
-        uiToggleBtn.Name = "UI_TOGGLE"
-        uiToggleBtn.Size = UDim2.new(0, 70, 0, 70)   -- bigger circle
-        uiToggleBtn.Position = UDim2.new(0, 8, 0, startY + (BTN_H+GAP)*3)
-        uiToggleBtn.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
-        uiToggleBtn.BorderSizePixel = 0
-        uiToggleBtn.Text = "S"
-        uiToggleBtn.TextColor3 = Color3.fromRGB(210, 20, 20)
-        uiToggleBtn.Font = Enum.Font.GothamBlack
-        uiToggleBtn.TextSize = 30
-        uiToggleBtn.AutoButtonColor = false
-        uiToggleBtn.ZIndex = 10002
-        uiToggleBtn.Parent = mobileGui
-        Instance.new("UICorner", uiToggleBtn).CornerRadius = UDim.new(1, 0)  -- full circle
-        local uiStroke = Instance.new("UIStroke", uiToggleBtn)
-        uiStroke.Color = Color3.fromRGB(210, 20, 20)
-        uiStroke.Thickness = 3
-
-        MobileButtons["UI"] = { btn = uiToggleBtn, setState = function(on)
-            if main then main.Visible = on end
-            uiToggleBtn.BackgroundColor3 = on and Color3.fromRGB(210,20,20) or Color3.fromRGB(20,20,20)
-            uiToggleBtn.TextColor3 = on and Color3.fromRGB(255,255,255) or Color3.fromRGB(210,20,20)
-        end}
-
-        local uiDragging, uiMoved = false, false
-        local uiDragStart, uiStartPos = Vector2.zero, Vector2.zero
-        local uiLastToggle = 0
-
-        local function doUiToggle()
-            local now = tick()
-            if now - uiLastToggle < 0.3 then return end  -- debounce double-fire
-            uiLastToggle = now
-            local visible = main and not main.Visible or false
-            if main then main.Visible = visible end
-            uiToggleBtn.BackgroundColor3 = visible and Color3.fromRGB(210,20,20) or Color3.fromRGB(20,20,20)
-            uiToggleBtn.TextColor3 = visible and Color3.fromRGB(255,255,255) or Color3.fromRGB(210,20,20)
-        end
-
-        uiToggleBtn.InputBegan:Connect(function(inp)
-            if inp.UserInputType == Enum.UserInputType.Touch or inp.UserInputType == Enum.UserInputType.MouseButton1 then
-                uiDragging = true; uiMoved = false
-                uiDragStart = Vector2.new(inp.Position.X, inp.Position.Y)
-                uiStartPos  = Vector2.new(uiToggleBtn.AbsolutePosition.X, uiToggleBtn.AbsolutePosition.Y)
-            end
-        end)
-        uiToggleBtn.InputChanged:Connect(function(inp)
-            if not uiDragging then return end
-            if inp.UserInputType == Enum.UserInputType.Touch or inp.UserInputType == Enum.UserInputType.MouseMovement then
-                local delta = Vector2.new(inp.Position.X, inp.Position.Y) - uiDragStart
-                if delta.Magnitude > 10 then
-                    uiMoved = true
-                    uiToggleBtn.Position = UDim2.new(0, uiStartPos.X + delta.X, 0, uiStartPos.Y + delta.Y)
-                end
-            end
-        end)
-        uiToggleBtn.InputEnded:Connect(function(inp)
-            if inp.UserInputType == Enum.UserInputType.Touch or inp.UserInputType == Enum.UserInputType.MouseButton1 then
-                if uiDragging and not uiMoved then doUiToggle() end
-                uiDragging = false
-            end
-        end)
-    end
+    createMobileButton("UI", col1X, startY + (BTN_H+GAP)*3, Color3.fromRGB(130, 130, 130), function(on)
+        if main then main.Visible = not on end
+    end)
 
     -- COL 2: A.LEFT, A.RIGHT, INF JMP, LOCK (stacked top to bottom, right column)
     createMobileButton("A.LEFT", col2X, startY + (BTN_H+GAP)*0, Color3.fromRGB(80, 200, 120), function(on)
@@ -1294,14 +2803,14 @@ if true then -- mobile buttons (always enabled)
         end)
     end)
 
-    -- TP DOWN button Ã¢â‚¬â€ stored in MobileButtons so Btn Scale slider works
+    -- TP DOWN button ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â stored in MobileButtons so Btn Scale slider works
     local tpBtnRef
     do
         local tpBtn = Instance.new("TextButton")
         tpBtn.Name = "TP DOWN"
         tpBtn.Size = UDim2.new(0, BTN_W, 0, BTN_H)
         tpBtn.Position = UDim2.new(0, col2X, 0, startY + (BTN_H+GAP)*3)
-        tpBtn.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+        tpBtn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
         tpBtn.BackgroundTransparency = 0
         tpBtn.BorderSizePixel = 0
         tpBtn.Text = "TP DOWN"
@@ -1333,7 +2842,7 @@ if true then -- mobile buttons (always enabled)
             tpBtn.BackgroundColor3 = Color3.fromRGB(210, 20, 20)
             tpBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
             task.delay(0.3, function()
-                tpBtn.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+                tpBtn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
                 tpBtn.TextColor3 = Color3.fromRGB(210, 20, 20)
             end)
         end
@@ -1368,14 +2877,14 @@ if true then -- mobile buttons (always enabled)
         tpBtn.MouseButton1Click:Connect(doTpDown)
     end
 
-    -- LOCK button Ã¢â‚¬â€ no toggle state stored in MobileButtons, just a local
+    -- LOCK button ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â no toggle state stored in MobileButtons, just a local
     do
         local lockBtn = Instance.new("TextButton")
         lockBtn.Name = "LOCK"
         lockBtn.Size = UDim2.new(0, BTN_W, 0, BTN_H)
-        lockBtn.Position = UDim2.new(0, col1X, 0, startY + (BTN_H+GAP)*4)
-        lockBtn.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
-        lockBtn.BackgroundTransparency = 0
+        lockBtn.Position = UDim2.new(0, MARGIN, 0, startY + (BTN_H+GAP)*3)
+        lockBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+        lockBtn.BackgroundTransparency = 0.1
         lockBtn.BorderSizePixel = 0
         lockBtn.Text = "UNLOCK"
         lockBtn.TextColor3 = Color3.fromRGB(200, 200, 200)
@@ -1391,12 +2900,8 @@ if true then -- mobile buttons (always enabled)
 
         local lockDragging, lockMoved = false, false
         local lockDragStart, lockStartPos = Vector2.zero, Vector2.zero
-        local lockLastToggle = 0
 
         local function toggleLock()
-            local now = tick()
-            if now - lockLastToggle < 0.3 then return end  -- debounce
-            lockLastToggle = now
             buttonsLocked = not buttonsLocked
             if buttonsLocked then
                 lockBtn.Text = "LOCK"
@@ -1405,8 +2910,8 @@ if true then -- mobile buttons (always enabled)
                 lockBtn.TextColor3 = Color3.fromRGB(0, 0, 0)
             else
                 lockBtn.Text = "UNLOCK"
-                lockBtn.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
-                lockBtn.BackgroundTransparency = 0
+                lockBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+                lockBtn.BackgroundTransparency = 0.1
                 lockBtn.TextColor3 = Color3.fromRGB(200, 200, 200)
             end
         end
@@ -1434,10 +2939,13 @@ if true then -- mobile buttons (always enabled)
                 lockDragging = false
             end
         end)
+        lockBtn.MouseButton1Click:Connect(function()
+            if not lockMoved then toggleLock() end
+        end)
     end
 
 
-    print("Ã¢Å“â€œ MOBILE BUTTONS: 2 horizontal rows, rectangles, lock button, fixed dragging")
+    print("ÃƒÂ¢Ã…â€œÃ¢â‚¬Å“ MOBILE BUTTONS: 2 horizontal rows, rectangles, lock button, fixed dragging")
 end
 
 
@@ -1446,7 +2954,7 @@ end
 main = Instance.new("Frame")
 main.Name = "Main"
 main.Size = UDim2.new(0, 560, 0, 540)
-main.Position = UDim2.new(0.5, -280, 0.5, -270)
+main.Position = UDim2.new(0, 20, 0, 20)
 main.BackgroundColor3 = C_BG
 main.BorderSizePixel = 0
 main.Active = true
@@ -1458,14 +2966,13 @@ local deviceType = "Desktop"
 if isMobile then
     deviceType = "Mobile"
     main.Size = UDim2.new(0, 400, 0, 400)
-    main.Position = UDim2.new(0.5, -200, 0.5, -200)
 end
 
 Instance.new("UICorner", main).CornerRadius = UDim.new(0, 24)
 
 local mainStroke = Instance.new("UIStroke", main)
 mainStroke.Color = Color3.fromRGB(210, 20, 20)
-mainStroke.Thickness = 2
+mainStroke.Thickness = 1.5
 
 -- Dragging (Mouse + Touch)
 do
@@ -1520,7 +3027,7 @@ byLbl.Size = UDim2.new(1, 0, 0, 14)
 byLbl.Position = UDim2.new(0, 0, 0, 50)
 byLbl.BackgroundTransparency = 1
 byLbl.Text = "https://discord.gg/3DAdwMRtn"
-byLbl.TextColor3 = Color3.fromRGB(150, 150, 150)
+byLbl.TextColor3 = C_DIM
 byLbl.Font = Enum.Font.GothamBold
 byLbl.TextSize = 11
 byLbl.TextXAlignment = Enum.TextXAlignment.Center
@@ -1532,7 +3039,7 @@ closeBtn.Size = UDim2.new(0, 28, 0, 28)
 closeBtn.Position = UDim2.new(1, -38, 0, 12)
 closeBtn.BackgroundTransparency = 1
 closeBtn.Text = "x"
-closeBtn.TextColor3 = Color3.fromRGB(200, 200, 200)
+closeBtn.TextColor3 = C_DIM
 closeBtn.Font = Enum.Font.GothamBold
 closeBtn.TextSize = 18
 closeBtn.ZIndex = 6
@@ -1543,7 +3050,7 @@ closeBtn.MouseEnter:Connect(function()
     TweenService:Create(closeBtn, TweenInfo.new(0.12), {TextColor3 = Color3.fromRGB(255, 60, 60)}):Play()
 end)
 closeBtn.MouseLeave:Connect(function()
-    TweenService:Create(closeBtn, TweenInfo.new(0.12), {TextColor3 = Color3.fromRGB(255,255,255)}):Play()
+    TweenService:Create(closeBtn, TweenInfo.new(0.12), {TextColor3 = C_DIM}):Play()
 end)
 
 -- Touch support for close button
@@ -1556,7 +3063,7 @@ end)
 local sep = Instance.new("Frame")
 sep.Size = UDim2.new(1, -40, 0, 1)
 sep.Position = UDim2.new(0, 20, 0, 68)
-sep.BackgroundColor3 = Color3.fromRGB(60, 20, 20)
+sep.BackgroundColor3 = Color3.fromRGB(220, 180, 180)
 sep.BorderSizePixel = 0
 sep.ZIndex = 3
 sep.Parent = main
@@ -1951,7 +3458,7 @@ local function makeRow(keybindRefName, labelTxt, enabledKey, order, onToggle)
     clk.MouseEnter:Connect(function()
         playTick()
         TweenService:Create(nameLbl, TweenInfo.new(0.1), {TextColor3 = C_PURPLE2}):Play()
-        TweenService:Create(row, TweenInfo.new(0.12), {BackgroundColor3 = Color3.fromRGB(45, 15, 15)}):Play()
+        TweenService:Create(row, TweenInfo.new(0.12), {BackgroundColor3 = Color3.fromRGB(255, 225, 225)}):Play()
     end)
     clk.MouseLeave:Connect(function()
         TweenService:Create(nameLbl, TweenInfo.new(0.1), {TextColor3 = C_PURPLE}):Play()
@@ -2055,7 +3562,7 @@ local function makeManualRow(keybindRefName, labelTxt, order)
     clk.MouseEnter:Connect(function()
         playTick()
         TweenService:Create(nameLbl, TweenInfo.new(0.1), {TextColor3 = C_PURPLE2}):Play()
-        TweenService:Create(row, TweenInfo.new(0.12), {BackgroundColor3 = Color3.fromRGB(45, 15, 15)}):Play()
+        TweenService:Create(row, TweenInfo.new(0.12), {BackgroundColor3 = Color3.fromRGB(255, 225, 225)}):Play()
     end)
     clk.MouseLeave:Connect(function()
         TweenService:Create(nameLbl, TweenInfo.new(0.1), {TextColor3 = C_PURPLE}):Play()
@@ -2066,7 +3573,7 @@ local function makeManualRow(keybindRefName, labelTxt, order)
         if inp.UserInputType == Enum.UserInputType.Touch then
             playTick()
             TweenService:Create(nameLbl, TweenInfo.new(0.1), {TextColor3 = C_PURPLE2}):Play()
-            TweenService:Create(row, TweenInfo.new(0.12), {BackgroundColor3 = Color3.fromRGB(45, 15, 15)}):Play()
+            TweenService:Create(row, TweenInfo.new(0.12), {BackgroundColor3 = Color3.fromRGB(255, 225, 225)}):Play()
         end
     end)
     
@@ -2091,7 +3598,7 @@ local function makeSectionLbl(txt, order)
     l.Size = UDim2.new(1, 0, 1, 0)
     l.BackgroundTransparency = 1
     l.Text = txt:upper()
-    l.TextColor3 = Color3.fromRGB(220, 40, 40)
+    l.TextColor3 = Color3.fromRGB(180, 0, 0)
     l.Font = Enum.Font.GothamBold
     l.TextSize = 10
     l.TextXAlignment = Enum.TextXAlignment.Left
@@ -2218,7 +3725,7 @@ local function makeInputBox(parent, lbl, defaultTxt, onDone)
     box.BackgroundColor3 = Color3.fromRGB(14, 0, 22)
     box.BorderSizePixel = 0
     box.Text = defaultTxt
-    box.TextColor3 = Color3.fromRGB(220, 40, 40)
+    box.TextColor3 = C_PURPLE
     box.Font = Enum.Font.GothamBold
     box.TextSize = 13
     box.ClearTextOnFocus = false
@@ -2275,9 +3782,7 @@ local function makeSlider(parent, lbl, minVal, maxVal, defaultVal, onChanged)
     valTxt.Size = UDim2.new(0, 50, 0, 20)
     valTxt.Position = UDim2.new(1, -60, 0.5, -10)
     valTxt.BackgroundTransparency = 1
-    valTxt.Text = (lbl == "FOV" or lbl == "Grab Radius" or lbl == "Btn Scale")
-        and tostring(math.floor(defaultVal))
-        or string.format("%.1f", math.floor(defaultVal * 10 + 0.5) / 10)
+    valTxt.Text = tostring(math.floor(defaultVal))
     valTxt.TextColor3 = C_PURPLE
     valTxt.Font = Enum.Font.GothamBold
     valTxt.TextSize = 13
@@ -2288,7 +3793,7 @@ local function makeSlider(parent, lbl, minVal, maxVal, defaultVal, onChanged)
     local trackBg = Instance.new("Frame")
     trackBg.Size = UDim2.new(0, 200, 0, 6)
     trackBg.Position = UDim2.new(0.38, 0, 0.5, -3)
-    trackBg.BackgroundColor3 = Color3.fromRGB(40, 10, 10)
+    trackBg.BackgroundColor3 = Color3.fromRGB(14, 0, 22)
     trackBg.BorderSizePixel = 0
     trackBg.ZIndex = 4
     trackBg.Parent = wrap
@@ -2720,24 +4225,20 @@ saveConfigBtn.LayoutOrder = O()
 saveConfigBtn.ZIndex = 4
 saveConfigBtn.Parent = vstack
 
-local saveLast = 0
-local function doSave()
-    local now = tick()
-    if now - saveLast < 0.5 then return end
-    saveLast = now
+saveConfigBtn.MouseButton1Click:Connect(function()
     saveConfig()
-end
-saveConfigBtn.MouseButton1Click:Connect(doSave)
-saveConfigBtn.InputBegan:Connect(function(inp)
-    if inp.UserInputType == Enum.UserInputType.Touch then
-        doSave()
-    end
 end)
 saveConfigBtn.MouseEnter:Connect(function()
     TweenService:Create(saveConfigBtn, TweenInfo.new(0.1), {TextColor3 = C_PURPLE}):Play()
 end)
 saveConfigBtn.MouseLeave:Connect(function()
     TweenService:Create(saveConfigBtn, TweenInfo.new(0.1), {TextColor3 = C_DIM}):Play()
+end)
+
+saveConfigBtn.InputBegan:Connect(function(inp)
+    if inp.UserInputType == Enum.UserInputType.Touch then
+        saveConfig()
+    end
 end)
 
 -- Progress Bar
@@ -2926,22 +4427,15 @@ RunService.RenderStepped:Connect(function()
         local md = h.MoveDirection
         local spd = speedToggled and CARRY_SPEED or NORMAL_SPEED
         if md.Magnitude > 0 then
-            hrp.AssemblyLinearVelocity = Vector3.new(md.X * spd, hrp.AssemblyLinearVelocity.Y, md.Z * spd)
+            hrp.Velocity = Vector3.new(md.X * spd, hrp.Velocity.Y, md.Z * spd)
         end
     end
     if speedLbl then
-        speedLbl.Text = "Speed: " .. string.format("%.1f", Vector3.new(hrp.AssemblyLinearVelocity.X, 0, hrp.AssemblyLinearVelocity.Z).Magnitude)
+        speedLbl.Text = "Speed: " .. string.format("%.1f", Vector3.new(hrp.Velocity.X, 0, hrp.Velocity.Z).Magnitude)
     end
 end)
-
 RunService.Heartbeat:Connect(function()
-    if autoBatToggled and h and hrp then
-        local target, dist = getClosestPlayer()
-        if target and target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
-            flyToFrontOfTarget(target.Character.HumanoidRootPart)
-            if dist <= 7 then tryHitBat() end
-        end
-    end
+    -- aimbot handled inside startAimBot connection
 end)
 
 -- Initialize
@@ -3035,7 +4529,7 @@ LocalPlayer.CharacterAdded:Connect(setupChar)
 if LocalPlayer.Character then setupChar(LocalPlayer.Character) end
 
 print("SPADE HUB v4 - Loaded!")
-print("Ã¢Å“â€œ Mobile: 2 horizontal rows of rectangle buttons + LOCK button")
-print("Ã¢Å“â€œ Inf jump fixed for mobile (re-jumps on land)")
-print("Ã¢Å“â€œ A.LEFT/A.RIGHT auto-reset button when movement completes")
-print("Ã¢Å“â€œ Drag uses btn.InputChanged - joystick no longer moves buttons")
+print("ÃƒÂ¢Ã…â€œÃ¢â‚¬Å“ Mobile: 2 horizontal rows of rectangle buttons + LOCK button")
+print("ÃƒÂ¢Ã…â€œÃ¢â‚¬Å“ Inf jump fixed for mobile (re-jumps on land)")
+print("ÃƒÂ¢Ã…â€œÃ¢â‚¬Å“ A.LEFT/A.RIGHT auto-reset button when movement completes")
+print("ÃƒÂ¢Ã…â€œÃ¢â‚¬Å“ Drag uses btn.InputChanged - joystick no longer moves buttons")
